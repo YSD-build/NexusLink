@@ -98,8 +98,6 @@ jobs:
             
             ## 下载说明
             
-            ### 服务端
-            
             | 架构 | 文件名 | 适用设备 |
             |------|--------|----------|
             | x86_64 | nexuslink-server-${{ github.ref_name }}-linux-x86_64 | 云服务器、PC、虚拟机 |
@@ -109,7 +107,7 @@ jobs:
             
             ## 使用方法
             
-            ### 服务端配置 server.yaml
+            ### server.yaml
             ```yaml
             bind_addr: 0.0.0.0
             bind_port: 7000
