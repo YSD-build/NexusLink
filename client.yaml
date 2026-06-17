@@ -1,0 +1,11 @@
+# NexusLink 客户端配置 v0.2.0.beta
+server_ip: 127.0.0.1
+server_port: 7000
+token: test123
+
+proxies:
+  mc:
+    type: tcp
+    port: 25565
+    localaddr: 127.0.0.1
+    localport: 25565

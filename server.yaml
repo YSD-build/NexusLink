@@ -1,0 +1,4 @@
+# NexusLink 服务端配置 v0.2.0.beta
+bind_addr: 0.0.0.0
+bind_port: 7000
+token: test123
