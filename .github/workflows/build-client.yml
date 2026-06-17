@@ -14,6 +14,7 @@ jobs:
   build-client:
     name: 编译客户端 ${{ matrix.name }}
     runs-on: ubuntu-latest
+    if: contains(github.ref, '.client')    # 只在tag包含.client时运行
     strategy:
       fail-fast: false
       matrix:
@@ -101,7 +102,7 @@ jobs:
     name: 发布 Client Release
     needs: build-client
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: contains(github.ref, '.client')    # 只在tag包含.client时运行
     steps:
       - name: 下载所有构建产物
         uses: actions/download-artifact@v4
@@ -129,7 +130,7 @@ jobs:
             ### 📱 Android (Termux)
             | 架构 | 文件名 | 适用设备 |
             |------|--------|----------|
-            | ARM64 (ARMv8) | nexuslink-client-${{ github.ref_name }}-android-arm64 | 骁龙、天玑、绝大多数安卓手机 |
+            | ARM64 (ARMv8) | nexuslink-client-${{ github.ref_name }}-android-arm64 | ✅ 骁龙、天玑、绝大多数安卓手机 |
             | ARMv7 | nexuslink-client-${{ github.ref_name }}-android-armv7 | 旧版安卓设备 |
             
             ### 🐧 Linux
@@ -158,16 +159,16 @@ jobs:
             ## 配置文件示例 client.yaml
             
             ```yaml
-            server_addr: 你的服务器IP
+            server_ip: 你的服务器IP
             server_port: 7000
             token: 你的密钥
             
             proxies:
-              minecraft:
+              mc:
                 type: tcp
-                remote_port: 25565
-                local_addr: 127.0.0.1
-                local_port: 25565
+                port: 25565
+                localaddr: 127.0.0.1
+                localport: 25565
             ```
           draft: false
           prerelease: false
