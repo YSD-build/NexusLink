@@ -1,4 +1,4 @@
-name: NexusLink 服务端编译
+name: NexusLink 编译
 
 on:
   push:
@@ -62,7 +62,6 @@ jobs:
           echo ""
           echo "编译完成:"
           ls -lh dist/
-          file dist/*
 
       - name: 上传构建产物
         uses: actions/upload-artifact@v4
@@ -70,9 +69,46 @@ jobs:
           name: server-${{ matrix.name }}
           path: dist/
 
+  build-android:
+    name: 编译 Android 客户端
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: 下载依赖
+        run: go mod tidy
+
+      - name: 编译 Android arm64-v8a
+        env:
+          GOOS: android
+          GOARCH: arm64
+          CGO_ENABLED: '0'
+        run: |
+          VERSION=${GITHUB_REF_NAME:-dev}
+          BUILD_NAME="nexuslink-android-${VERSION}-arm64-v8a"
+          
+          echo "编译 Android: $BUILD_NAME"
+          go build -v -ldflags "-s -w -X main.Version=${VERSION}" -o "dist/$BUILD_NAME" ./cmd/server
+          
+          echo ""
+          echo "编译完成:"
+          ls -lh dist/
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: android-arm64-v8a
+          path: dist/
+
   release:
-    name: 发布 Server Release
-    needs: build-server
+    name: 发布 Release
+    needs: [build-server, build-android]
     runs-on: ubuntu-latest
     if: startsWith(github.ref, 'refs/tags/v')
     steps:
@@ -87,7 +123,7 @@ jobs:
           echo "所有编译产物:"
           ls -lh dist/
 
-      - name: 创建 GitHub Release (Server)
+      - name: 创建 GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           name: ${{ github.ref_name }}
@@ -95,22 +131,38 @@ jobs:
           files: dist/*
           generate_release_notes: true
           body: |
-            # NexusLink 服务端 ${{ github.ref_name }}
+            # NexusLink ${{ github.ref_name }}
             
             ## 下载说明
+            
+            ### 服务端
             
             | 架构 | 文件名 | 适用设备 |
             |------|--------|----------|
             | x86_64 | nexuslink-server-${{ github.ref_name }}-linux-x86_64 | 云服务器、PC、虚拟机 |
-            | ARMv8 (ARM64) | nexuslink-server-${{ github.ref_name }}-linux-armv8 | ARM服务器、树莓派4/5、骁龙/天玑 |
+            | ARMv8 (ARM64) | nexuslink-server-${{ github.ref_name }}-linux-armv8 | ARM服务器、树莓派4/5 |
             | ARMv7 | nexuslink-server-${{ github.ref_name }}-linux-armv7 | 路由器、树莓派2/3 |
             | ARMv6 | nexuslink-server-${{ github.ref_name }}-linux-armv6 | 旧嵌入式设备 |
             
+            ### 客户端
+            
+            | 平台 | 文件名 | 适用设备 |
+            |------|--------|----------|
+            | Android arm64-v8a | nexuslink-android-${{ github.ref_name }}-arm64-v8a | 安卓手机/平板 |
+            
             ## 使用方法
             
+            ### 服务端
             ```bash
             chmod +x nexuslink-server-*
             ./nexuslink-server-* -c server.yaml
+            ```
+            
+            ### Android 客户端
+            在 Termux 或终端模拟器中运行:
+            ```bash
+            chmod +x nexuslink-android-*
+            ./nexuslink-android-*
             ```
           draft: false
           prerelease: false
