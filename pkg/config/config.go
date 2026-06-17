@@ -26,10 +26,10 @@ type ProxyConfig struct {
 
 // ClientConfig 客户端配置
 type ClientConfig struct {
-	ServerAddr string        `yaml:"server_addr"`
-	ServerPort int           `yaml:"server_port"`
-	Token      string        `yaml:"token"`
-	Proxies    []ProxyConfig `yaml:"proxies"`
+	ServerAddr string                 `yaml:"server_addr"`
+	ServerPort int                    `yaml:"server_port"`
+	Token      string                 `yaml:"token"`
+	Proxies    map[string]ProxyConfig `yaml:"proxies"`
 }
 
 // LoadServerConfig 加载服务端配置
@@ -93,9 +93,8 @@ func DefaultClientConfig() *ClientConfig {
 		ServerAddr: "127.0.0.1",
 		ServerPort: 7000,
 		Token:      "change_me_to_secure_token",
-		Proxies: []ProxyConfig{
-			{
-				Name:       "ssh",
+		Proxies: map[string]ProxyConfig{
+			"ssh": {
 				Type:       "tcp",
 				RemotePort: 6000,
 				LocalAddr:  "127.0.0.1",
