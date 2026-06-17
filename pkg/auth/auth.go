@@ -36,23 +36,23 @@ func NewAuth(token string) *Auth {
 // 格式: [32字节签名][8字节时间戳][原始数据]
 func (a *Auth) Sign(data []byte) []byte {
 	timestamp := uint64(time.Now().Unix())
-	
+
 	// 创建时间戳字节
 	tsBytes := make([]byte, TimestampSize)
 	binary.BigEndian.PutUint64(tsBytes, timestamp)
-	
+
 	// 计算HMAC: HMAC(secret, timestamp + data)
 	mac := hmac.New(sha256.New, a.secret)
 	mac.Write(tsBytes)
 	mac.Write(data)
 	signature := mac.Sum(nil)
-	
+
 	// 组装: signature + timestamp + data
 	result := make([]byte, HeaderSize+len(data))
 	copy(result[:SignatureSize], signature)
 	copy(result[SignatureSize:HeaderSize], tsBytes)
 	copy(result[HeaderSize:], data)
-	
+
 	return result
 }
 
@@ -61,30 +61,30 @@ func (a *Auth) Verify(signedData []byte) ([]byte, bool) {
 	if len(signedData) < HeaderSize {
 		return nil, false
 	}
-	
+
 	// 提取各部分
 	receivedSig := signedData[:SignatureSize]
 	tsBytes := signedData[SignatureSize:HeaderSize]
 	data := signedData[HeaderSize:]
-	
+
 	// 验证时间戳
 	timestamp := binary.BigEndian.Uint64(tsBytes)
 	now := uint64(time.Now().Unix())
 	if timestamp > now+MaxTimeOffset || timestamp < now-MaxTimeOffset {
 		return nil, false
 	}
-	
+
 	// 重新计算签名
 	mac := hmac.New(sha256.New, a.secret)
 	mac.Write(tsBytes)
 	mac.Write(data)
 	expectedSig := mac.Sum(nil)
-	
+
 	// 安全比较(防止时序攻击)
 	if !hmac.Equal(receivedSig, expectedSig) {
 		return nil, false
 	}
-	
+
 	return data, true
 }
 

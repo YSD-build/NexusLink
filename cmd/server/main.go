@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	"secure-tunnel/pkg/auth"
-	"secure-tunnel/pkg/config"
-	"secure-tunnel/pkg/protocol"
+	"nexuslink/pkg/auth"
+	"nexuslink/pkg/config"
+	"nexuslink/pkg/protocol"
 )
 
 const version = "1.0.0"
@@ -34,11 +34,11 @@ type Proxy struct {
 
 // Server 服务端
 type Server struct {
-	cfg       *config.ServerConfig
-	auth      *auth.Auth
-	proxies   map[string]*Proxy
+	cfg        *config.ServerConfig
+	auth       *auth.Auth
+	proxies    map[string]*Proxy
 	clientConn net.Conn
-	mu        sync.RWMutex
+	mu         sync.RWMutex
 }
 
 func main() {
@@ -328,7 +328,7 @@ func (s *Server) forwardWithAuth(userConn, clientConn net.Conn, connID string) {
 func (s *Server) handleUDPConnections(proxy *Proxy) {
 	buf := make([]byte, 65535)
 	clientMap := make(map[string]*net.UDPAddr)
-	
+
 	for {
 		n, addr, err := proxy.UDPConn.ReadFromUDP(buf)
 		if err != nil {
@@ -336,7 +336,7 @@ func (s *Server) handleUDPConnections(proxy *Proxy) {
 		}
 
 		clientMap[addr.String()] = addr
-		
+
 		// 验证并转发到客户端
 		data, ok := s.auth.Verify(buf[:n])
 		if !ok {

@@ -26,10 +26,10 @@ type ProxyConfig struct {
 
 // ClientConfig 客户端配置
 type ClientConfig struct {
-	ServerAddr string         `yaml:"server_addr"`
-	ServerPort int            `yaml:"server_port"`
-	Token      string         `yaml:"token"`
-	Proxies    []ProxyConfig  `yaml:"proxies"`
+	ServerAddr string        `yaml:"server_addr"`
+	ServerPort int           `yaml:"server_port"`
+	Token      string        `yaml:"token"`
+	Proxies    []ProxyConfig `yaml:"proxies"`
 }
 
 // LoadServerConfig 加载服务端配置

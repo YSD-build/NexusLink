@@ -54,11 +54,11 @@ type LoginResp struct {
 
 // NewProxy 新建代理请求
 type NewProxy struct {
-	Name         string    `json:"name"`
-	Type         ProxyType `json:"type"`
-	RemotePort   int       `json:"remote_port"`
-	LocalAddr    string    `json:"local_addr"`
-	LocalPort    int       `json:"local_port"`
+	Name       string    `json:"name"`
+	Type       ProxyType `json:"type"`
+	RemotePort int       `json:"remote_port"`
+	LocalAddr  string    `json:"local_addr"`
+	LocalPort  int       `json:"local_port"`
 }
 
 // NewProxyResp 新建代理响应
@@ -87,12 +87,12 @@ func WriteMessage(conn net.Conn, msgType MessageType, data interface{}) error {
 	if err != nil {
 		return err
 	}
-	
+
 	// 消息格式: [1字节类型][4字节长度][payload]
 	header := make([]byte, 5)
 	header[0] = byte(msgType)
 	binary.BigEndian.PutUint32(header[1:5], uint32(len(payload)))
-	
+
 	_, err = conn.Write(append(header, payload...))
 	return err
 }
@@ -103,15 +103,15 @@ func ReadMessage(conn net.Conn) (*Message, error) {
 	if _, err := io.ReadFull(conn, header); err != nil {
 		return nil, err
 	}
-	
+
 	msgType := MessageType(header[0])
 	length := binary.BigEndian.Uint32(header[1:5])
-	
+
 	data := make([]byte, length)
 	if _, err := io.ReadFull(conn, data); err != nil {
 		return nil, err
 	}
-	
+
 	return &Message{
 		Type: msgType,
 		Data: data,
