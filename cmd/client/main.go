@@ -54,7 +54,7 @@ func main() {
 	}
 
 	log.Printf("NexusLink Client v%s starting...", Version)
-	log.Printf("Connecting to server %s:%d", cfg.ServerAddr, cfg.ServerPort)
+	log.Printf("Connecting to server %s:%d", cfg.ServerIP, cfg.ServerPort)
 
 	for {
 		err := client.connect()
@@ -73,7 +73,7 @@ func main() {
 
 // connect 连接到服务端
 func (c *Client) connect() error {
-	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", c.cfg.ServerAddr, c.cfg.ServerPort))
+	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", c.cfg.ServerIP, c.cfg.ServerPort))
 	if err != nil {
 		return err
 	}
@@ -129,12 +129,12 @@ func (c *Client) connect() error {
 // registerProxy 注册代理
 func (c *Client) registerProxy(name string, proxy config.ProxyConfig) {
 	log.Printf("Registering proxy [%s] type=%s local=%s:%d remote=%d",
-		name, proxy.Type, proxy.LocalAddr, proxy.LocalPort, proxy.RemotePort)
+		name, proxy.Type, proxy.LocalAddr, proxy.LocalPort, proxy.Port)
 
 	err := protocol.WriteMessage(c.conn, protocol.TypeNewProxy, protocol.NewProxy{
 		Name:       name,
 		Type:       protocol.ProxyType(proxy.Type),
-		RemotePort: proxy.RemotePort,
+		RemotePort: proxy.Port,
 	})
 	if err != nil {
 		log.Printf("Register proxy [%s] failed: %v", name, err)
@@ -146,7 +146,7 @@ func (c *Client) registerProxy(name string, proxy config.ProxyConfig) {
 		Type:       protocol.ProxyType(proxy.Type),
 		LocalAddr:  proxy.LocalAddr,
 		LocalPort:  proxy.LocalPort,
-		RemotePort: proxy.RemotePort,
+		RemotePort: proxy.Port,
 	}
 }
 

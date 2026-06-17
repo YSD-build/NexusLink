@@ -17,16 +17,15 @@ type ServerConfig struct {
 
 // ProxyConfig 单个代理配置
 type ProxyConfig struct {
-	Name       string `yaml:"name"`
-	Type       string `yaml:"type"` // tcp or udp
-	RemotePort int    `yaml:"remote_port"`
-	LocalAddr  string `yaml:"local_addr"`
-	LocalPort  int    `yaml:"local_port"`
+	Type      string `yaml:"type"` // tcp or udp
+	Port      int    `yaml:"port"` // 远程端口
+	LocalAddr string `yaml:"localaddr"`
+	LocalPort int    `yaml:"localport"`
 }
 
 // ClientConfig 客户端配置
 type ClientConfig struct {
-	ServerAddr string                 `yaml:"server_addr"`
+	ServerIP   string                 `yaml:"server_ip"`
 	ServerPort int                    `yaml:"server_port"`
 	Token      string                 `yaml:"token"`
 	Proxies    map[string]ProxyConfig `yaml:"proxies"`
@@ -68,8 +67,8 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 	}
 
 	// 设置默认值
-	if cfg.ServerAddr == "" {
-		cfg.ServerAddr = "127.0.0.1"
+	if cfg.ServerIP == "" {
+		cfg.ServerIP = "127.0.0.1"
 	}
 	if cfg.ServerPort == 0 {
 		cfg.ServerPort = 7000
@@ -90,15 +89,15 @@ func DefaultServerConfig() *ServerConfig {
 // DefaultClientConfig 生成默认客户端配置
 func DefaultClientConfig() *ClientConfig {
 	return &ClientConfig{
-		ServerAddr: "127.0.0.1",
+		ServerIP:   "1.1.1.1",
 		ServerPort: 7000,
-		Token:      "change_me_to_secure_token",
+		Token:      "your_token_here",
 		Proxies: map[string]ProxyConfig{
-			"ssh": {
-				Type:       "tcp",
-				RemotePort: 6000,
-				LocalAddr:  "127.0.0.1",
-				LocalPort:  22,
+			"mc": {
+				Type:      "tcp",
+				Port:      25565,
+				LocalAddr: "127.0.0.1",
+				LocalPort: 25565,
 			},
 		},
 	}
