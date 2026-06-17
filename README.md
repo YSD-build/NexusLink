@@ -4,14 +4,37 @@
 
 ---
 
+## 🟢 服务端运行状态
+
+| 分类 | 版本 | 状态 | 支持架构 |
+|------|------|------|---------|
+| **Server 服务端** | **v0.1.1.Server** | ✅ 已上线 | x86_64 / ARM64 / ARMv7 / ARMv6 |
+| **Client 客户端** | **v0.1.0.Client** | ✅ 已上线 | Linux / Windows / Android |
+
+---
+
 ## 📦 下载安装
 
-**Release 下载：** https://github.com/YSD-build/NexusLink/releases
+### 🖥️ Server 服务端（公网服务器）
+**Release：** https://github.com/YSD-build/NexusLink/releases/tag/v0.1.1.Server
 
-| 版本 | 说明 |
-|------|------|
-| **v0.1.0.Server** | 服务端（Linux x86_64/ARM64/ARMv7/ARMv6） |
-| **v0.1.0.Client** | 客户端（Linux/Windows/Android） |
+| 架构 | 文件名 | 适用设备 |
+|------|--------|----------|
+| x86_64 | nexuslink-server-v0.1.1.Server-linux-x86_64 | PC、云服务器 |
+| **ARM64** | **nexuslink-server-v0.1.1.Server-linux-armv8** | ✅ ARM服务器、树莓派4/5 |
+| ARMv7 | nexuslink-server-v0.1.1.Server-linux-armv7 | 路由器、树莓派2/3 |
+| ARMv6 | nexuslink-server-v0.1.1.Server-linux-armv6 | 旧嵌入式设备 |
+
+### 📱 Client 客户端（内网机器/手机）
+**Release：** https://github.com/YSD-build/NexusLink/releases/tag/v0.1.0.Client
+
+| 架构 | 文件名 | 适用设备 |
+|------|--------|----------|
+| **android-arm64** | **nexuslink-client-v0.1.0.Client-android-arm64** | ✅ 骁龙、天玑、绝大多数安卓手机 |
+| android-armv7 | nexuslink-client-v0.1.0.Client-android-armv7 | 旧版安卓设备 |
+| linux-x86_64 | nexuslink-client-v0.1.0.Client-linux-x86_64 | PC、虚拟机 |
+| linux-armv8 | nexuslink-client-v0.1.0.Client-linux-armv8 | ARM服务器、树莓派 |
+| windows-x86_64 | nexuslink-client-v0.1.0.Client-windows-x86_64.exe | Windows PC |
 
 ---
 
@@ -19,10 +42,10 @@
 
 ### 1️⃣ 服务端部署（公网服务器）
 
-**下载服务端：**
+**下载并运行：**
 ```bash
-# Linux x86_64
-wget https://github.com/YSD-build/NexusLink/releases/download/v0.1.0.Server/nexuslink-server-v0.1.0.Server-linux-x86_64
+# 下载（ARM64服务器为例）
+wget https://github.com/YSD-build/NexusLink/releases/download/v0.1.1.Server/nexuslink-server-v0.1.1.Server-linux-armv8
 chmod +x nexuslink-server-*
 ```
 
@@ -35,7 +58,13 @@ token: 你的密钥
 
 **运行服务端：**
 ```bash
-./nexuslink-server-v0.1.0.Server-linux-x86_64 -c server.yaml
+./nexuslink-server-v0.1.1.Server-linux-armv8 -c server.yaml
+```
+
+**正常运行输出：**
+```
+NexusLink Server vv0.1.1.Server starting...
+Listening on 0.0.0.0:7000
 ```
 
 ---
@@ -56,17 +85,19 @@ proxies:
     port: 25565
     localaddr: 127.0.0.1
     localport: 25565
-    
-  ssh:
-    type: tcp
-    port: 6000
-    localaddr: 127.0.0.1
-    localport: 22
 ```
 
 **运行：**
 ```bash
-./nexuslink-client-v0.1.0.Client-linux-x86_64 -c client.yaml
+./nexuslink-client-v0.1.0.Client-linux-armv8 -c client.yaml
+```
+
+**正常连接输出：**
+```
+NexusLink Client vv0.1.0.Client starting...
+Connecting to server 你的IP:7000
+Connected to server successfully
+Registering proxy [mc] type=tcp local=127.0.0.1:25565 remote=25565
 ```
 
 ---
@@ -77,23 +108,12 @@ proxies:
 
 1. 安装 Termux: https://f-droid.org/packages/com.termux/
 
-2. 下载客户端（绝大多数手机选 **android-arm64**）:
-   - 骁龙/天玑手机: `nexuslink-client-v0.1.0.Client-android-arm64`
-   - 旧设备: `nexuslink-client-v0.1.0.Client-android-armv7`
+2. 下载客户端（选 **android-arm64**）
 
 3. Termux 中运行:
 ```bash
-chmod +x nexuslink-client-android-arm64
-./nexuslink-client-android-arm64 -c client.yaml
-```
-
----
-
-#### 🪟 Windows 客户端
-
-**创建配置 client.yaml，运行：**
-```cmd
-nexuslink-client-v0.1.0.Client-windows-x86_64.exe -c client.yaml
+chmod +x nexuslink-client-v0.1.0.Client-android-arm64
+./nexuslink-client-v0.1.0.Client-android-arm64 -c client.yaml
 ```
 
 ---
@@ -123,21 +143,6 @@ proxies:
     port: 6000
     localaddr: 127.0.0.1
     localport: 22
-  
-  # 示例3: Web服务
-  web:
-    type: tcp
-    port: 8080
-    localaddr: 127.0.0.1
-    localport: 80
-```
-
-### 服务端配置 server.yaml
-
-```yaml
-bind_addr: 0.0.0.0    # 监听地址（默认0.0.0.0）
-bind_port: 7000       # 监听端口
-token: your_secret_key # 认证密钥
 ```
 
 ---
@@ -155,29 +160,6 @@ token: your_secret_key # 认证密钥
 ✅ **防重放** - 5分钟时间窗口验证  
 ✅ **防注入** - 恒时比较防止时序攻击  
 ✅ **Gzip压缩** - 可选流量压缩节省带宽
-
----
-
-## 📊 支持架构
-
-### 服务端 v0.1.0.Server
-| 架构 | 文件名 | 适用设备 |
-|------|--------|----------|
-| x86_64 | nexuslink-server-v0.1.0.Server-linux-x86_64 | PC、云服务器 |
-| ARM64 | nexuslink-server-v0.1.0.Server-linux-armv8 | ARM服务器、树莓派4/5 |
-| ARMv7 | nexuslink-server-v0.1.0.Server-linux-armv7 | 路由器、树莓派2/3 |
-| ARMv6 | nexuslink-server-v0.1.0.Server-linux-armv6 | 旧嵌入式设备 |
-
-### 客户端 v0.1.0.Client
-| 架构 | 文件名 | 适用设备 |
-|------|--------|----------|
-| **android-arm64** | nexuslink-client-v0.1.0.Client-android-arm64 | ✅ 骁龙、天玑、绝大多数安卓手机 |
-| android-armv7 | nexuslink-client-v0.1.0.Client-android-armv7 | 旧版安卓设备 |
-| linux-x86_64 | nexuslink-client-v0.1.0.Client-linux-x86_64 | PC、虚拟机 |
-| linux-armv8 | nexuslink-client-v0.1.0.Client-linux-armv8 | ARM服务器、树莓派 |
-| linux-armv7 | nexuslink-client-v0.1.0.Client-linux-armv7 | 路由器 |
-| linux-armv6 | nexuslink-client-v0.1.0.Client-linux-armv6 | 旧嵌入式设备 |
-| windows-x86_64 | nexuslink-client-v0.1.0.Client-windows-x86_64.exe | Windows PC |
 
 ---
 
@@ -205,74 +187,38 @@ proxies:
 
 ---
 
-### 示例2: 穿透本地 Web 服务
+### 示例2: 本地测试（服务端客户端同一机器）
 
 ```yaml
 # client.yaml
-proxies:
-  web:
-    type: tcp
-    port: 8080
-    localaddr: 127.0.0.1
-    localport: 80
-```
-
-**外网访问：** `http://你的服务器IP:8080`
-
----
-
-### 示例3: 远程 SSH 内网机器
-
-```yaml
-# client.yaml
-proxies:
-  ssh:
-    type: tcp
-    port: 6000
-    localaddr: 127.0.0.1
-    localport: 22
-```
-
-**远程连接：** `ssh -p 6000 user@你的服务器IP`
-
----
-
-## 🔧 编译说明
-
-**本地编译：**
-```bash
-git clone https://github.com/YSD-build/NexusLink.git
-cd NexusLink
-go mod tidy
-
-# 服务端
-CGO_ENABLED=0 go build -o nexuslink-server ./cmd/server
-
-# 客户端
-CGO_ENABLED=0 go build -o nexuslink-client ./cmd/client
-
-# Android 客户端
-CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -o nexuslink-client-android-arm64 ./cmd/client
+server_ip: 127.0.0.1    # 本地测试用回环地址
+server_port: 7000
+token: test123
 ```
 
 ---
 
 ## 📝 常见问题
 
-**Q: 连接失败怎么办？**
-- 检查服务器防火墙是否开放 7000 端口和代理端口
+**Q: 提示 Permission denied?**
+```bash
+chmod +x nexuslink-*
+```
+
+**Q: 提示 address already in use?**
+- 检查端口是否被占用
+- 确认没有重复运行服务端
+
+**Q: 客户端连接失败?**
+- 检查服务器防火墙开放 7000 端口和代理端口
 - 确认 token 服务端和客户端一致
 - 检查 server_ip 是否正确
 
-**Q: Android 怎么下载文件到 Termux？**
+**Q: Android 怎么下载到 Termux?**
 ```bash
-# 在 Termux 中
 pkg install wget
 wget https://github.com/YSD-build/NexusLink/releases/download/v0.1.0.Client/nexuslink-client-v0.1.0.Client-android-arm64
 ```
-
-**Q: 支持 UDP 吗？**
-- 支持，配置 type: udp 即可
 
 ---
 
