@@ -1,241 +1,279 @@
-# NexusLink - 极致优化内网穿透工具
+# NexusLink - 高性能带认证内网穿透工具
 
-> 比原版FRP性能提升300%+，资源占用降低80%，带数据包级认证和流量压缩
-
----
-
-## 项目概述
-
-NexusLink 是基于FRP架构思想深度重构的下一代内网穿透工具，通过**架构级优化**实现了极致的性能和极低的资源占用。
-
-### 核心特性
-
-✅ **极致性能** - epoll事件驱动，吞吐量提升2-3倍  
-✅ **极低资源** - 1万连接仅需48MB内存，单连接<5KB  
-✅ **数据包认证** - Poly1305/BLAKE3每包认证，防未授权访问  
-✅ **流量压缩** - LZ4/Zstd自适应压缩，带宽翻倍  
-✅ **零拷贝转发** - splice内核级转发，CPU占用-60%  
-✅ **模块化设计** - 易扩展，易维护  
+> 类似FRP但增加**每数据包HMAC-SHA256认证**，防篡改防重放，纯Go编译无依赖
 
 ---
 
-## 架构设计
+## 📦 下载安装
 
-### 核心架构图
+**Release 下载：** https://github.com/YSD-build/NexusLink/releases
 
-```
-                        NexusLink 架构
-┌─────────────────────────────────────────────────────────────────┐
-│                        控制平面 (Control Plane)                  │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │  Client Manager    Auth Manager    Config Manager       │   │
-│  │  (Goroutine)       (Goroutine)     (Goroutine)         │   │
-│  └─────────────────────────────────────────────────────────┘   │
-└───────────────────────────────────┬─────────────────────────────┘
-                                    │
-┌───────────────────────────────────▼─────────────────────────────┐
-│                        数据平面 (Data Plane)                     │
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │                    IO 多路复用层 (epoll)                 │   │
-│  │  ┌──────────┐  ┌──────────┐  ┌──────────┐               │   │
-│  │  │ Worker 0 │  │ Worker 1 │  │ Worker N │  CPU亲和绑定  │   │
-│  │  │ CPU 0    │  │ CPU 1    │  │ CPU N    │               │   │
-│  │  └────┬─────┘  └────┬─────┘  └────┬─────┘               │   │
-│  └───────┼──────────────┼──────────────┼────────────────────┘   │
-│          │              │              │                        │
-│  ┌───────▼──────────────▼──────────────▼────────────────────┐   │
-│  │                    管道处理流水线                         │   │
-│  │                                                           │   │
-│  │  [读事件] → [认证验证] → [解压] → [零拷贝转发] → [写事件] │   │
-│  │                    ↓         ↓                            │   │
-│  │               XXH3校验   LZ4/Zstd                         │   │
-│  │               Poly1305   自适应算法                       │   │
-│  └───────────────────────────────────────────────────────────┘   │
-│                                                                 │
-│  ┌─────────────────────────────────────────────────────────┐   │
-│  │                    内存管理层                            │   │
-│  │  ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐                   │   │
-│  │  │  4KB │ │ 16KB │ │ 64KB │ │256KB │  Buffer Pool      │   │
-│  │  │ 池   │ │ 池   │ │ 池   │ │ 池   │  无锁设计          │   │
-│  │  └──────┘ └──────┘ └──────┘ └──────┘                   │   │
-│  └─────────────────────────────────────────────────────────┘   │
-└─────────────────────────────────────────────────────────────────┘
-```
+| 版本 | 说明 |
+|------|------|
+| **v0.1.0.Server** | 服务端（Linux x86_64/ARM64/ARMv7/ARMv6） |
+| **v0.1.0.Client** | 客户端（Linux/Windows/Android） |
 
 ---
 
-## 性能对比
+## 🚀 快速开始
 
-### 与原版FRP v0.52 对比
+### 1️⃣ 服务端部署（公网服务器）
 
-| 指标 | 原版FRP | NexusLink | 提升 |
-|------|---------|-------------|------|
-| **单连接吞吐量** | 2.5 Gbps | **8.5 Gbps** | +240% |
-| **1Gbps CPU占用** | 25% 单核 | **8% 单核** | -68% |
-| **1万连接内存** | 250 MB | **48 MB** | -81% |
-| **最大并发连接** | 3万 | **12万+** | +300% |
-| **P99延迟** | 5ms | **1.2ms** | -76% |
-| **Goroutine数(1万连接)** | ~2万 | **16个** | -99.9% |
-
----
-
-## 项目结构
-
-```
-secure-tunnel/
-├── pkg/
-│   ├── auth/           # 高性能数据包认证
-│   │   ├── auth.go          # 基础HMAC-SHA256认证
-│   │   └── fast_auth.go     # Poly1305/BLAKE3/XXH3极速认证
-│   ├── compress/       # 自适应流量压缩
-│   │   └── compressor.go    # LZ4/Zstd + XXH3校验
-│   ├── pool/           # 分级内存池
-│   │   └── buffer.go        # 4K/16K/64K/256K缓存行对齐
-│   ├── forward/        # epoll转发引擎
-│   │   └── engine.go        # 事件驱动+Worker亲和性
-│   ├── protocol/       # 通信协议
-│   │   └── message.go       # 控制消息定义
-│   └── config/         # 配置管理
-│       └── config.go        # YAML配置解析
-├── cmd/
-│   ├── server/         # 服务端入口
-│   └── client/         # 客户端入口
-└── docs/
-    ├── ARCHITECTURE.md      # 完整架构设计文档
-    └── BENCHMARK.md         # 性能压测方案
-```
-
----
-
-## 核心模块说明
-
-### 1. 内存池 (pkg/pool)
-- **分级设计**: 4KB/16KB/64KB/256KB 四种规格
-- **缓存行对齐**: 64字节padding，避免false sharing
-- **预热机制**: 启动时预分配1000个buffer
-- **无锁**: sync.Pool实现，GC友好
-
-### 2. 认证模块 (pkg/auth)
-```go
-// 四种认证算法可选
-AuthPoly1305   // ChaCha20-Poly1305, 12GB/s, 加密级
-AuthBLAKE3     // BLAKE3-128, 4GB/s, 加密级  
-AuthXXH3       // XXH3-128, 50GB/s, 校验级
-AuthHMACSHA256 // HMAC-SHA256, 0.5GB/s, 兼容
-```
-
-- **每包认证**: 16字节tag + 8字节时间戳
-- **时间窗口**: 5分钟防重放
-- **恒时比较**: 防止时序攻击
-- **批量认证**: 16包合并计算，开销-90%
-
-### 3. 压缩模块 (pkg/compress)
-- **算法**: LZ4(默认) / Zstd(可选)
-- **智能决策**: 大小阈值、熵检测、CPU保护
-- **校验**: XXH3-64完整性校验
-- **自适应**: 根据带宽/CPU动态调整级别
-
-### 4. 转发引擎 (pkg/forward)
-- **IO模型**: epoll LT + 边缘触发
-- **Worker模型**: N-Goroutine绑定CPU核心
-- **批处理**: 1ms窗口聚合IO事件
-- **零拷贝**: 直接内核空间转发
-
----
-
-## 快速开始
-
-### 编译
+**下载服务端：**
 ```bash
-cd secure-tunnel
-go mod tidy
-go build -o st-server ./cmd/server
-go build -o st-client ./cmd/client
+# Linux x86_64
+wget https://github.com/YSD-build/NexusLink/releases/download/v0.1.0.Server/nexuslink-server-v0.1.0.Server-linux-x86_64
+chmod +x nexuslink-server-*
 ```
 
-### 服务端配置 (server.yaml)
+**创建配置 server.yaml：**
 ```yaml
 bind_addr: 0.0.0.0
 bind_port: 7000
-token: your_secure_token_here
-auth_type: blake3  # poly1305/blake3/xxh3/hmac
-compression: true
+token: 你的密钥
 ```
 
-### 客户端配置 (client.yaml)
+**运行服务端：**
+```bash
+./nexuslink-server-v0.1.0.Server-linux-x86_64 -c server.yaml
+```
+
+---
+
+### 2️⃣ 客户端配置（内网机器/手机）
+
+#### 🐧 Linux 客户端
+
+**创建配置 client.yaml：**
 ```yaml
-server_addr: your-server-ip
+server_ip: 你的公网服务器IP
 server_port: 7000
-token: your_secure_token_here
+token: 你的密钥
 
 proxies:
-  - name: ssh
+  mc:
     type: tcp
-    remote_port: 6000
-    local_addr: 127.0.0.1
-    local_port: 22
+    port: 25565
+    localaddr: 127.0.0.1
+    localport: 25565
+    
+  ssh:
+    type: tcp
+    port: 6000
+    localaddr: 127.0.0.1
+    localport: 22
 ```
 
-### 运行
+**运行：**
 ```bash
+./nexuslink-client-v0.1.0.Client-linux-x86_64 -c client.yaml
+```
+
+---
+
+#### 📱 Android 客户端（手机）
+
+**无需Root，Termux直接运行：**
+
+1. 安装 Termux: https://f-droid.org/packages/com.termux/
+
+2. 下载客户端（绝大多数手机选 **android-arm64**）:
+   - 骁龙/天玑手机: `nexuslink-client-v0.1.0.Client-android-arm64`
+   - 旧设备: `nexuslink-client-v0.1.0.Client-android-armv7`
+
+3. Termux 中运行:
+```bash
+chmod +x nexuslink-client-android-arm64
+./nexuslink-client-android-arm64 -c client.yaml
+```
+
+---
+
+#### 🪟 Windows 客户端
+
+**创建配置 client.yaml，运行：**
+```cmd
+nexuslink-client-v0.1.0.Client-windows-x86_64.exe -c client.yaml
+```
+
+---
+
+## ⚙️ 配置文件详解
+
+### 客户端配置 client.yaml
+
+```yaml
+# 必填：服务端信息
+server_ip: 1.2.3.4        # 你的公网服务器IP
+server_port: 7000         # 服务端端口
+token: your_secret_key    # 必须与服务端一致
+
+# 代理配置（可添加多个）
+proxies:
+  # 示例1: Minecraft 服务器
+  mc:
+    type: tcp             # tcp 或 udp
+    port: 25565           # 服务端暴露的端口
+    localaddr: 127.0.0.1  # 本地服务地址
+    localport: 25565      # 本地服务端口
+  
+  # 示例2: SSH
+  ssh:
+    type: tcp
+    port: 6000
+    localaddr: 127.0.0.1
+    localport: 22
+  
+  # 示例3: Web服务
+  web:
+    type: tcp
+    port: 8080
+    localaddr: 127.0.0.1
+    localport: 80
+```
+
+### 服务端配置 server.yaml
+
+```yaml
+bind_addr: 0.0.0.0    # 监听地址（默认0.0.0.0）
+bind_port: 7000       # 监听端口
+token: your_secret_key # 认证密钥
+```
+
+---
+
+## 🔐 安全特性
+
+### 每数据包认证机制
+
+**数据包格式：**
+```
+[32字节 HMAC-SHA256 签名] [8字节 时间戳] [原始数据]
+```
+
+✅ **防篡改** - 每个数据包独立签名，中间人无法修改  
+✅ **防重放** - 5分钟时间窗口验证  
+✅ **防注入** - 恒时比较防止时序攻击  
+✅ **Gzip压缩** - 可选流量压缩节省带宽
+
+---
+
+## 📊 支持架构
+
+### 服务端 v0.1.0.Server
+| 架构 | 文件名 | 适用设备 |
+|------|--------|----------|
+| x86_64 | nexuslink-server-v0.1.0.Server-linux-x86_64 | PC、云服务器 |
+| ARM64 | nexuslink-server-v0.1.0.Server-linux-armv8 | ARM服务器、树莓派4/5 |
+| ARMv7 | nexuslink-server-v0.1.0.Server-linux-armv7 | 路由器、树莓派2/3 |
+| ARMv6 | nexuslink-server-v0.1.0.Server-linux-armv6 | 旧嵌入式设备 |
+
+### 客户端 v0.1.0.Client
+| 架构 | 文件名 | 适用设备 |
+|------|--------|----------|
+| **android-arm64** | nexuslink-client-v0.1.0.Client-android-arm64 | ✅ 骁龙、天玑、绝大多数安卓手机 |
+| android-armv7 | nexuslink-client-v0.1.0.Client-android-armv7 | 旧版安卓设备 |
+| linux-x86_64 | nexuslink-client-v0.1.0.Client-linux-x86_64 | PC、虚拟机 |
+| linux-armv8 | nexuslink-client-v0.1.0.Client-linux-armv8 | ARM服务器、树莓派 |
+| linux-armv7 | nexuslink-client-v0.1.0.Client-linux-armv7 | 路由器 |
+| linux-armv6 | nexuslink-client-v0.1.0.Client-linux-armv6 | 旧嵌入式设备 |
+| windows-x86_64 | nexuslink-client-v0.1.0.Client-windows-x86_64.exe | Windows PC |
+
+---
+
+## 💡 使用示例
+
+### 示例1: 穿透 Minecraft 服务器
+
+**内网开服，外网可连：**
+
+```yaml
+# client.yaml
+server_ip: 你的服务器IP
+server_port: 7000
+token: mc_server_123
+
+proxies:
+  mc:
+    type: tcp
+    port: 25565
+    localaddr: 127.0.0.1
+    localport: 25565
+```
+
+**外网玩家连接：** `你的服务器IP:25565`
+
+---
+
+### 示例2: 穿透本地 Web 服务
+
+```yaml
+# client.yaml
+proxies:
+  web:
+    type: tcp
+    port: 8080
+    localaddr: 127.0.0.1
+    localport: 80
+```
+
+**外网访问：** `http://你的服务器IP:8080`
+
+---
+
+### 示例3: 远程 SSH 内网机器
+
+```yaml
+# client.yaml
+proxies:
+  ssh:
+    type: tcp
+    port: 6000
+    localaddr: 127.0.0.1
+    localport: 22
+```
+
+**远程连接：** `ssh -p 6000 user@你的服务器IP`
+
+---
+
+## 🔧 编译说明
+
+**本地编译：**
+```bash
+git clone https://github.com/YSD-build/NexusLink.git
+cd NexusLink
+go mod tidy
+
 # 服务端
-./st-server -c server.yaml
+CGO_ENABLED=0 go build -o nexuslink-server ./cmd/server
 
 # 客户端
-./st-client -c client.yaml
+CGO_ENABLED=0 go build -o nexuslink-client ./cmd/client
+
+# Android 客户端
+CGO_ENABLED=0 GOOS=android GOARCH=arm64 go build -o nexuslink-client-android-arm64 ./cmd/client
 ```
 
 ---
 
-## 安全特性
+## 📝 常见问题
 
-### 数据包级认证
-- 每个数据包独立签名，防止篡改和注入
-- 中间人无法伪造数据包
-- 时间戳防重放攻击
-- 恒时比较防时序攻击
+**Q: 连接失败怎么办？**
+- 检查服务器防火墙是否开放 7000 端口和代理端口
+- 确认 token 服务端和客户端一致
+- 检查 server_ip 是否正确
 
-### 对比FRP的安全提升
-| 安全威胁 | 原版FRP | NexusLink |
-|---------|---------|-------------|
-| 未授权连接 | Token验证 | ✅ Token + 每包认证 |
-| 数据包篡改 | ❌ 无防护 | ✅ 每包签名 |
-| 重放攻击 | ❌ 无防护 | ✅ 时间戳窗口 |
-| 中间人攻击 | ❌ 数据明文 | ✅ 认证+可选加密 |
+**Q: Android 怎么下载文件到 Termux？**
+```bash
+# 在 Termux 中
+pkg install wget
+wget https://github.com/YSD-build/NexusLink/releases/download/v0.1.0.Client/nexuslink-client-v0.1.0.Client-android-arm64
+```
 
----
-
-## 优化目标验收
-
-✅ **内存**: 1万连接 < 50MB (目标48MB)  
-✅ **CPU**: 1Gbps < 10%单核 (目标8%)  
-✅ **并发**: 10万+稳定连接 (目标12万)  
-✅ **认证**: 每数据包强制认证  
-✅ **压缩**: LZ4自适应压缩  
-✅ **零拷贝**: splice内核转发  
+**Q: 支持 UDP 吗？**
+- 支持，配置 type: udp 即可
 
 ---
 
-## 技术亮点
-
-1. **Goroutine数量减少99.9%**: 从每连接2个到固定16个Worker
-2. **内存占用降低80%**: 分级内存池+零拷贝
-3. **系统调用减少80%**: 1ms窗口批量处理IO
-4. **认证开销<2%**: Poly1305硬件加速级性能
-5. **真正的零信任**: 每个数据包都经过验证
-
----
-
-## 后续扩展方向
-
-- [ ] QUIC传输协议支持
-- [ ] io_uring引擎（Linux 5.10+）
-- [ ] Web管理面板
-- [ ] 多客户端负载均衡
-- [ ] 流量统计与限流
-- [ ] TLS 1.3加密隧道
-
----
-
-**NexusLink - 重新定义内网穿透的性能边界**
+**NexusLink - 安全、高效、跨平台的内网穿透工具**
