@@ -1,111 +1,38 @@
-name: NexusLink 多平台自动化编译
+name: NexusLink 服务器通用版本编译
 
 on:
   push:
     branches: [ main ]
     tags:
       - 'v*'
-  pull_request:
-    branches: [ main ]
   workflow_dispatch:
 
 jobs:
   build:
-    name: 编译 ${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.optimization }}
+    name: 编译 ${{ matrix.os }}-${{ matrix.arch }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Linux x86_64 (标准)
-          - goos: linux
+          # Linux x86_64 服务器通用版
+          - os: linux
+            arch: amd64
             goarch: amd64
-            goarm: ''
-            optimization: ''
-            cc: ''
-            cflags: ''
             name: linux-x86_64
 
-          # Linux ARMv7 (32位)
-          - goos: linux
+          # Linux ARM64 服务器通用版 (ARMv8)
+          - os: linux
+            arch: arm64
+            goarch: arm64
+            name: linux-arm64
+
+          # Linux ARMv7 通用版 (路由器/嵌入式)
+          - os: linux
+            arch: armv7
             goarch: arm
             goarm: '7'
-            optimization: ''
-            cc: 'arm-linux-gnueabihf-gcc'
-            cflags: '-march=armv7-a -mfpu=neon -mfloat-abi=hard'
             name: linux-armv7
-
-          # Linux ARMv8 / ARM64 (64位)
-          - goos: linux
-            goarch: arm64
-            goarm: ''
-            optimization: ''
-            cc: 'aarch64-linux-gnu-gcc'
-            cflags: '-march=armv8-a+crc+crypto'
-            name: linux-armv8
-
-          # Linux ARM (通用32位)
-          - goos: linux
-            goarch: arm
-            goarm: '6'
-            optimization: ''
-            cc: 'arm-linux-gnueabi-gcc'
-            cflags: ''
-            name: linux-arm
-
-          # 骁龙特级优化 (Snapdragon 8 Gen 系列)
-          - goos: linux
-            goarch: arm64
-            goarm: ''
-            optimization: '-snapdragon'
-            cc: 'aarch64-linux-gnu-gcc'
-            cflags: '-march=armv8.2-a+crypto+dotprod -mcpu=cortex-a76 -O3 -ffast-math'
-            name: linux-arm64-snapdragon
-
-          # 天玑特级优化 (MediaTek Dimensity 系列)
-          - goos: linux
-            goarch: arm64
-            goarm: ''
-            optimization: '-dimensity'
-            cc: 'aarch64-linux-gnu-gcc'
-            cflags: '-march=armv8.2-a+crypto+dotprod -mcpu=cortex-a78 -O3 -ffast-math'
-            name: linux-arm64-dimensity
-
-          # Windows x86_64
-          - goos: windows
-            goarch: amd64
-            goarm: ''
-            optimization: ''
-            cc: 'x86_64-w64-mingw32-gcc'
-            cflags: ''
-            name: windows-x86_64
-
-          # Windows ARM64
-          - goos: windows
-            goarch: arm64
-            goarm: ''
-            optimization: ''
-            cc: 'aarch64-w64-mingw32-gcc'
-            cflags: ''
-            name: windows-arm64
-
-          # Android ARM64
-          - goos: android
-            goarch: arm64
-            goarm: ''
-            optimization: ''
-            cc: 'aarch64-linux-android21-clang'
-            cflags: ''
-            name: android-arm64
-
-          # Android ARMv7
-          - goos: android
-            goarch: arm
-            goarm: '7'
-            optimization: ''
-            cc: 'armv7a-linux-androideabi21-clang'
-            cflags: ''
-            name: android-armv7
 
     steps:
       - name: 检出代码
@@ -117,45 +44,30 @@ jobs:
           go-version: '1.22'
           cache: true
 
-      - name: 安装交叉编译工具链
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc-arm-linux-gnueabi gcc-arm-linux-gnueabihf gcc-aarch64-linux-gnu
-          sudo apt-get install -y mingw-w64
-          sudo apt-get install -y clang llvm
-
-      - name: 安装 Android NDK
-        if: matrix.goos == 'android'
-        run: |
-          wget -q https://dl.google.com/android/repository/android-ndk-r25b-linux.zip
-          unzip -q android-ndk-r25b-linux.zip
-          echo "ANDROID_NDK_HOME=$PWD/android-ndk-r25b" >> $GITHUB_ENV
-          echo "PATH=$PWD/android-ndk-r25b/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH" >> $GITHUB_ENV
-
       - name: 编译 NexusLink
         env:
-          GOOS: ${{ matrix.goos }}
+          GOOS: linux
           GOARCH: ${{ matrix.goarch }}
           GOARM: ${{ matrix.goarm }}
-          CC: ${{ matrix.cc }}
-          CGO_CFLAGS: ${{ matrix.cflags }}
           CGO_ENABLED: '0'
         run: |
           BUILD_NAME="nexuslink-${{ matrix.name }}"
-          if [ "${{ matrix.goos }}" = "windows" ]; then
-            BUILD_NAME="${BUILD_NAME}.exe"
-          fi
           
+          echo "========================================"
           echo "编译: $BUILD_NAME"
           echo "GOOS=$GOOS GOARCH=$GOARCH GOARM=$GOARM"
-          echo "CC=$CC"
-          echo "CFLAGS=$CGO_CFLAGS"
+          echo "========================================"
+          
+          mkdir -p dist
           
           go build -v -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME:-dev} -X main.Commit=$(git rev-parse --short HEAD)" \
             -o "dist/$BUILD_NAME" \
             ./cmd/server
           
+          echo ""
+          echo "编译完成，文件信息:"
           ls -lh dist/
+          file dist/*
 
       - name: 生成 SHA256 校验和
         run: |
@@ -163,6 +75,7 @@ jobs:
           for file in *; do
             sha256sum "$file" >> sha256sums.txt
           done
+          echo "校验和:"
           cat sha256sums.txt
 
       - name: 上传构建产物
@@ -170,7 +83,7 @@ jobs:
         with:
           name: nexuslink-${{ matrix.name }}
           path: dist/
-          retention-days: 30
+          retention-days: 90
 
   release:
     name: 发布 Release
@@ -185,7 +98,9 @@ jobs:
           merge-multiple: true
 
       - name: 列出所有文件
-        run: ls -lh dist/
+        run: |
+          echo "所有编译产物:"
+          ls -lh dist/
 
       - name: 创建 GitHub Release
         uses: softprops/action-gh-release@v1
