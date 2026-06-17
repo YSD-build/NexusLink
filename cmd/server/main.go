@@ -15,7 +15,7 @@ import (
 	"nexuslink/pkg/protocol"
 )
 
-const version = "1.0.0"
+var Version = "dev"
 
 var (
 	configFile = flag.String("c", "server.yaml", "config file path")
@@ -60,7 +60,7 @@ func main() {
 		proxies: make(map[string]*Proxy),
 	}
 
-	log.Printf("Secure Tunnel Server v%s starting...", version)
+	log.Printf("NexusLink Server v%s starting...", Version)
 	log.Printf("Listening on %s:%d", cfg.BindAddr, cfg.BindPort)
 
 	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", cfg.BindAddr, cfg.BindPort))
