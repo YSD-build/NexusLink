@@ -8,60 +8,38 @@ permissions:
   contents: write
 
 jobs:
-  build-server:
+  build-and-release:
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - { name: linux-x86_64, goarch: amd64 }
-          - { name: linux-armv8, goarch: arm64 }
-          - { name: linux-armv7, goarch: arm, goarm: '7' }
-          - { name: linux-armv6, goarch: arm, goarm: '6' }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with: { go-version: '1.22' }
+        with:
+          go-version: '1.22'
       - run: go mod tidy
-      - run: |
-          GOOS=linux GOARCH=${{ matrix.goarch }} GOARM=${{ matrix.goarm }} CGO_ENABLED=0 \
-          go build -ldflags "-s -w" -o dist/nexuslink-server-${GITHUB_REF_NAME}-${{ matrix.name }} ./cmd/server
-      - uses: actions/upload-artifact@v4
-        with: { name: server-${{ matrix.name }}, path: dist/ }
-
-  build-client:
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        include:
-          - { name: android-arm64, goos: android, goarch: arm64 }
-          - { name: android-armv7, goos: android, goarch: arm, goarm: '7' }
-          - { name: linux-x86_64, goos: linux, goarch: amd64 }
-          - { name: linux-armv8, goos: linux, goarch: arm64 }
-          - { name: linux-armv7, goos: linux, goarch: arm, goarm: '7' }
-          - { name: linux-armv6, goos: linux, goarch: arm, goarm: '6' }
-          - { name: windows-x86_64, goos: windows, goarch: amd64 }
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with: { go-version: '1.22' }
-      - run: go mod tidy
-      - run: |
-          if [ "${{ matrix.goos }}" = "windows" ]; then
-            EXT=.exe
-          fi
-          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} GOARM=${{ matrix.goarm }} CGO_ENABLED=0 \
-          go build -ldflags "-s -w" -o dist/nexuslink-client-${GITHUB_REF_NAME}-${{ matrix.name }}$EXT ./cmd/client
-      - uses: actions/upload-artifact@v4
-        with: { name: client-${{ matrix.name }}, path: dist/ }
-
-  release:
-    needs: [build-server, build-client]
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/download-artifact@v4
-        with: { path: dist, merge-multiple: true }
-      - run: ls -lh dist/
-      - uses: softprops/action-gh-release@v2
+      
+      - name: 编译所有版本
+        run: |
+          VERSION=${GITHUB_REF_NAME}
+          
+          # 服务端 4个
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -o dist/nexuslink-server-${VERSION}-linux-x86_64 ./cmd/server
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-s -w" -o dist/nexuslink-server-${VERSION}-linux-armv8 ./cmd/server
+          GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build -ldflags "-s -w" -o dist/nexuslink-server-${VERSION}-linux-armv7 ./cmd/server
+          GOOS=linux GOARCH=arm GOARM=6 CGO_ENABLED=0 go build -ldflags "-s -w" -o dist/nexuslink-server-${VERSION}-linux-armv6 ./cmd/server
+          
+          # 客户端 7个
+          GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-s -w" -o dist/nexuslink-client-${VERSION}-android-arm64 ./cmd/client
+          GOOS=android GOARCH=arm GOARM=7 CGO_ENABLED=0 go build -ldflags "-s -w" -o dist/nexuslink-client-${VERSION}-android-armv7 ./cmd/client
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -o dist/nexuslink-client-${VERSION}-linux-x86_64 ./cmd/client
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-s -w" -o dist/nexuslink-client-${VERSION}-linux-armv8 ./cmd/client
+          GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build -ldflags "-s -w" -o dist/nexuslink-client-${VERSION}-linux-armv7 ./cmd/client
+          GOOS=linux GOARCH=arm GOARM=6 CGO_ENABLED=0 go build -ldflags "-s -w" -o dist/nexuslink-client-${VERSION}-linux-armv6 ./cmd/client
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -o dist/nexuslink-client-${VERSION}-windows-x86_64.exe ./cmd/client
+          
+          ls -lh dist/
+      
+      - name: Release
+        uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           files: dist/*
