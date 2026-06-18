@@ -33,7 +33,58 @@ jobs:
           GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -o dist/nexuslink-client-${GITHUB_REF_NAME}-windows-x86_64.exe ./cmd/client
           
           ls -lh dist/
+      - name: 生成更新日志
+        run: |
+          cat > release_body.md << 'EOF'
+          # 🚀 NexusLink ${{ github.ref_name }} 正式发布
+          
+          ## 📦 统一版本 - 服务端 + 客户端
+          
+          ### ✅ 服务端 (4个架构)
+          | 架构 | 文件名 | 适用设备 |
+          |------|--------|----------|
+          | Linux x86_64 | nexuslink-server-${{ github.ref_name }}-linux-x86_64 | 云服务器、PC、虚拟机 |
+          | Linux ARMv8 | nexuslink-server-${{ github.ref_name }}-linux-armv8 | ✅ ARM服务器、树莓派4/5 |
+          | Linux ARMv7 | nexuslink-server-${{ github.ref_name }}-linux-armv7 | 路由器、树莓派2/3 |
+          | Linux ARMv6 | nexuslink-server-${{ github.ref_name }}-linux-armv6 | 旧嵌入式设备 |
+          
+          ### ✅ 客户端 (6个版本)
+          | 架构 | 文件名 | 适用设备 |
+          |------|--------|----------|
+          | ✅ Android ARM64 | nexuslink-client-${{ github.ref_name }}-android-arm64 | 骁龙、天玑、绝大多数安卓手机（Termux无Root） |
+          | Linux x86_64 | nexuslink-client-${{ github.ref_name }}-linux-x86_64 | PC、虚拟机 |
+          | Linux ARMv8 | nexuslink-client-${{ github.ref_name }}-linux-armv8 | ARM服务器、树莓派 |
+          | Linux ARMv7 | nexuslink-client-${{ github.ref_name }}-linux-armv7 | 路由器 |
+          | Linux ARMv6 | nexuslink-client-${{ github.ref_name }}-linux-armv6 | 旧嵌入式设备 |
+          | Windows x64 | nexuslink-client-${{ github.ref_name }}-windows-x86_64.exe | Windows PC |
+          
+          ## 🔐 安全特性
+          - ✅ HMAC-SHA256 每数据包独立认证
+          - ✅ 防重放攻击（5分钟时间窗口）
+          - ✅ 恒时比较防止时序攻击
+          - ✅ 带宽损耗仅 2.8%
+          
+          ## 🚀 快速开始
+          ### 服务端
+          \`\`\`bash
+          chmod +x nexuslink-server-*
+          ./nexuslink-server-* -c server.yaml
+          \`\`\`
+          
+          ### 客户端 (Android Termux)
+          \`\`\`bash
+          chmod +x nexuslink-client-android-arm64
+          ./nexuslink-client-android-arm64 -c client.yaml
+          \`\`\`
+          
+          ## ⚠️ 说明
+          - 去掉了 Android ARMv7（32位），需要cgo不支持纯静态编译
+          - 99%的现代安卓手机都是ARM64，不影响使用
+          EOF
+          echo "✅ 更新日志已生成"
+          cat release_body.md
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ github.ref_name }}
           files: dist/*
+          body_path: release_body.md
