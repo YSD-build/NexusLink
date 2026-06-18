@@ -1,142 +1,67 @@
-name: NexusLink 统一编译
+name: NexusLink Build
 on:
   push:
-    branches: [ main ]
     tags:
       - 'v*'
-  workflow_dispatch:
 
 permissions:
   contents: write
 
 jobs:
-  build:
-    name: 编译 ${{ matrix.type }} ${{ matrix.name }}
+  build-server:
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
       matrix:
         include:
-          # 服务端 4个
-          - type: server
-            name: linux-x86_64
-            goos: linux
-            goarch: amd64
-          - type: server
-            name: linux-armv8
-            goos: linux
-            goarch: arm64
-          - type: server
-            name: linux-armv7
-            goos: linux
-            goarch: arm
-            goarm: '7'
-          - type: server
-            name: linux-armv6
-            goos: linux
-            goarch: arm
-            goarm: '6'
-          # 客户端 7个
-          - type: client
-            name: android-arm64
-            goos: android
-            goarch: arm64
-          - type: client
-            name: android-armv7
-            goos: android
-            goarch: arm
-            goarm: '7'
-          - type: client
-            name: linux-x86_64
-            goos: linux
-            goarch: amd64
-          - type: client
-            name: linux-armv8
-            goos: linux
-            goarch: arm64
-          - type: client
-            name: linux-armv7
-            goos: linux
-            goarch: arm
-            goarm: '7'
-          - type: client
-            name: linux-armv6
-            goos: linux
-            goarch: arm
-            goarm: '6'
-          - type: client
-            name: windows-x86_64
-            goos: windows
-            goarch: amd64
+          - { name: linux-x86_64, goarch: amd64 }
+          - { name: linux-armv8, goarch: arm64 }
+          - { name: linux-armv7, goarch: arm, goarm: '7' }
+          - { name: linux-armv6, goarch: arm, goarm: '6' }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with:
-          go-version: '1.22'
+        with: { go-version: '1.22' }
       - run: go mod tidy
-      - name: 编译
-        env:
-          GOOS: ${{ matrix.goos }}
-          GOARCH: ${{ matrix.goarch }}
-          GOARM: ${{ matrix.goarm }}
-          CGO_ENABLED: '0'
-        run: |
-          VERSION=${GITHUB_REF_NAME:-dev}
-          if [ "${{ matrix.goos }}" = "windows" ]; then
-            BUILD_NAME="nexuslink-${{ matrix.type }}-${VERSION}-${{ matrix.name }}.exe"
-          else
-            BUILD_NAME="nexuslink-${{ matrix.type }}-${VERSION}-${{ matrix.name }}"
-          fi
-          go build -ldflags "-s -w" -o "dist/$BUILD_NAME" ./cmd/${{ matrix.type }}
-          ls -lh dist/
+      - run: |
+          GOOS=linux GOARCH=${{ matrix.goarch }} GOARM=${{ matrix.goarm }} CGO_ENABLED=0 \
+          go build -ldflags "-s -w" -o dist/nexuslink-server-${GITHUB_REF_NAME}-${{ matrix.name }} ./cmd/server
       - uses: actions/upload-artifact@v4
-        with:
-          name: ${{ matrix.type }}-${{ matrix.name }}
-          path: dist/
+        with: { name: server-${{ matrix.name }}, path: dist/ }
+
+  build-client:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - { name: android-arm64, goos: android, goarch: arm64 }
+          - { name: android-armv7, goos: android, goarch: arm, goarm: '7' }
+          - { name: linux-x86_64, goos: linux, goarch: amd64 }
+          - { name: linux-armv8, goos: linux, goarch: arm64 }
+          - { name: linux-armv7, goos: linux, goarch: arm, goarm: '7' }
+          - { name: linux-armv6, goos: linux, goarch: arm, goarm: '6' }
+          - { name: windows-x86_64, goos: windows, goarch: amd64 }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.22' }
+      - run: go mod tidy
+      - run: |
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            EXT=.exe
+          fi
+          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} GOARM=${{ matrix.goarm }} CGO_ENABLED=0 \
+          go build -ldflags "-s -w" -o dist/nexuslink-client-${GITHUB_REF_NAME}-${{ matrix.name }}$EXT ./cmd/client
+      - uses: actions/upload-artifact@v4
+        with: { name: client-${{ matrix.name }}, path: dist/ }
 
   release:
-    needs: build
+    needs: [build-server, build-client]
     runs-on: ubuntu-latest
-    if: startsWith(github.ref, 'refs/tags/v')
     steps:
       - uses: actions/download-artifact@v4
-        with:
-          path: dist/
-          merge-multiple: true
-      - name: 列出所有文件
-        run: |
-          echo "✅ 所有编译产物:"
-          ls -lh dist/
+        with: { path: dist, merge-multiple: true }
+      - run: ls -lh dist/
       - uses: softprops/action-gh-release@v2
         with:
-          name: NexusLink ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
           files: dist/*
-          body: |
-            # 🚀 NexusLink ${{ github.ref_name }} 正式发布
-            
-            ## 📦 统一版本 - 服务端 + 客户端
-            
-            ### ✅ 服务端 (4个架构)
-            | 架构 | 文件名 | 适用设备 |
-            |------|--------|----------|
-            | Linux x86_64 | nexuslink-server-${{ github.ref_name }}-linux-x86_64 | 云服务器、PC |
-            | Linux ARMv8 | nexuslink-server-${{ github.ref_name }}-linux-armv8 | ✅ ARM服务器、树莓派4/5 |
-            | Linux ARMv7 | nexuslink-server-${{ github.ref_name }}-linux-armv7 | 路由器、树莓派3 |
-            | Linux ARMv6 | nexuslink-server-${{ github.ref_name }}-linux-armv6 | 旧嵌入式设备 |
-            
-            ### ✅ 客户端 (7个版本)
-            | 架构 | 文件名 | 适用设备 |
-            |------|--------|----------|
-            | Android ARM64 | nexuslink-client-${{ github.ref_name }}-android-arm64 | ✅ 骁龙、天玑手机（Termux） |
-            | Android ARMv7 | nexuslink-client-${{ github.ref_name }}-android-armv7 | 旧安卓设备 |
-            | Linux x86_64 | nexuslink-client-${{ github.ref_name }}-linux-x86_64 | PC、虚拟机 |
-            | Linux ARMv8 | nexuslink-client-${{ github.ref_name }}-linux-armv8 | 树莓派 |
-            | Linux ARMv7 | nexuslink-client-${{ github.ref_name }}-linux-armv7 | 路由器 |
-            | Linux ARMv6 | nexuslink-client-${{ github.ref_name }}-linux-armv6 | 旧嵌入式设备 |
-            | Windows x86_64 | nexuslink-client-${{ github.ref_name }}-windows-x86_64.exe | Windows PC |
-            
-            ## 🔐 安全特性
-            - ✅ HMAC-SHA256 每数据包独立认证
-            - ✅ 防重放攻击
-            - ✅ 带宽损耗仅 2.8%
