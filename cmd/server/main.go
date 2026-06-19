@@ -82,6 +82,13 @@ func (s *Server) GetStatus() web.StatusInfo {
 		clientCount = 1
 	}
 
+	uptime := time.Since(s.startTime)
+	uptimeStr := fmt.Sprintf("%d天%d小时%d分",
+		int(uptime.Hours())/24,
+		int(uptime.Hours())%24,
+		int(uptime.Minutes())%60,
+	)
+
 	return web.StatusInfo{
 		Running:     true,
 		BindAddr:    s.cfg.BindAddr,
@@ -89,15 +96,34 @@ func (s *Server) GetStatus() web.StatusInfo {
 		ClientCount: clientCount,
 		ProxyCount:  len(s.proxies),
 		Proxies:     proxies,
+		Version:     Version,
+		Uptime:      uptimeStr,
+		StartTime:   s.startTime.Format("2006-01-02 15:04:05"),
 	}
 }
 
 // addLog 添加日志
 func (s *Server) addLog(msg string) {
 	if s.webServer != nil {
-		s.webServer.AddLog(msg)
+		s.webServer.AddLog("info", msg)
 	}
 	log.Println(msg)
+}
+
+// addLogWarn 添加警告日志
+func (s *Server) addLogWarn(msg string) {
+	if s.webServer != nil {
+		s.webServer.AddLog("warn", msg)
+	}
+	log.Println("[WARN]", msg)
+}
+
+// addLogError 添加错误日志
+func (s *Server) addLogError(msg string) {
+	if s.webServer != nil {
+		s.webServer.AddLog("error", msg)
+	}
+	log.Println("[ERROR]", msg)
 }
 
 func main() {
