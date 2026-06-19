@@ -1,0 +1,20 @@
+server_ip: 127.0.0.1
+server_port: 7000
+token: nexuslink-default-token
+
+proxies:
+  web:
+    type: tcp
+    port: 8080
+    localaddr: 127.0.0.1
+    localport: 80
+  ssh:
+    type: tcp
+    port: 6000
+    localaddr: 127.0.0.1
+    localport: 22
+  mc:
+    type: tcp
+    port: 25565
+    localaddr: 127.0.0.1
+    localport: 25565

@@ -33,6 +33,18 @@ jobs:
           GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -o dist/nexuslink-client-${GITHUB_REF_NAME}-windows-x86_64.exe ./cmd/client
           
           ls -lh dist/
+          
+          # 打包 Web 管理面板
+          mkdir -p dist/web-panel
+          cp -r web/* dist/web-panel/
+          # 放入 x86_64 版本的二进制作为默认
+          cp dist/nexuslink-server-${GITHUB_REF_NAME}-linux-x86_64 dist/web-panel/bin/nexuslink-server
+          cp dist/nexuslink-client-${GITHUB_REF_NAME}-linux-x86_64 dist/web-panel/bin/nexuslink-client
+          chmod +x dist/web-panel/bin/*
+          cd dist && zip -r nexuslink-web-panel-${GITHUB_REF_NAME}.zip web-panel/ && cd ..
+          rm -rf dist/web-panel
+          
+          ls -lh dist/
       - name: 生成更新日志
         run: |
           cat > release_body.md << 'EOF'
@@ -77,9 +89,33 @@ jobs:
           ./nexuslink-client-android-arm64 -c client.yaml
           \`\`\`
           
+          ## 🎛️ Web 管理面板 (新增)
+          | 文件 | 说明 |
+          |------|------|
+          | nexuslink-web-panel-${{ github.ref_name }}.zip | Web管理面板完整包（含x86_64二进制） |
+          
+          **功能特性：**
+          - ✅ 密码登录认证，保护管理界面
+          - ✅ 仪表盘：服务状态总览、统计卡片
+          - ✅ 可视化配置编辑：服务端/客户端配置
+          - ✅ 代理管理：添加、删除、列表展示
+          - ✅ 实时日志：WebSocket推送，自动滚动
+          - ✅ 系统信息：版本、体积、安全特性
+          - ✅ 现代化UI：深色主题、玻璃拟态效果
+          
+          **快速启动：**
+          \`\`\`bash
+          unzip nexuslink-web-panel-${{ github.ref_name }}.zip
+          cd web-panel
+          ./start.sh
+          # 访问 http://localhost:9527
+          # 默认密码：admin123
+          \`\`\`
+          
           ## ⚠️ 说明
           - 去掉了 Android ARMv7（32位），需要cgo不支持纯静态编译
           - 99%的现代安卓手机都是ARM64，不影响使用
+          - Web面板默认内置x86_64版本二进制，其他架构请自行替换 bin/ 目录下的文件
           EOF
           echo "✅ 更新日志已生成"
           cat release_body.md
