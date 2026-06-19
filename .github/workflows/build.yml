@@ -35,8 +35,11 @@ jobs:
           ls -lh dist/
           
           # 打包 Web 管理面板
-          mkdir -p dist/web-panel
-          cp -r web/* dist/web-panel/
+          mkdir -p dist/web-panel/bin
+          mkdir -p dist/web-panel/config
+          cp -r web/server dist/web-panel/
+          cp web/start.sh dist/web-panel/
+          cp web/config/* dist/web-panel/config/ 2>/dev/null || true
           # 放入 x86_64 版本的二进制作为默认
           cp dist/nexuslink-server-${GITHUB_REF_NAME}-linux-x86_64 dist/web-panel/bin/nexuslink-server
           cp dist/nexuslink-client-${GITHUB_REF_NAME}-linux-x86_64 dist/web-panel/bin/nexuslink-client
