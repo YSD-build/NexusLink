@@ -10,9 +10,13 @@ import (
 
 // ServerConfig 服务端配置
 type ServerConfig struct {
-	BindAddr string `yaml:"bind_addr"`
-	BindPort int    `yaml:"bind_port"`
-	Token    string `yaml:"token"`
+	BindAddr    string `yaml:"bind_addr"`
+	BindPort    int    `yaml:"bind_port"`
+	Token       string `yaml:"token"`
+	WebEnable   bool   `yaml:"web_enable"`
+	WebAddr     string `yaml:"web_addr"`
+	WebPort     int    `yaml:"web_port"`
+	WebPassword string `yaml:"web_password"`
 }
 
 // ProxyConfig 单个代理配置
@@ -49,6 +53,16 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 	}
 	if cfg.BindPort == 0 {
 		cfg.BindPort = 7000
+	}
+	// Web面板默认值
+	if cfg.WebAddr == "" {
+		cfg.WebAddr = "127.0.0.1"
+	}
+	if cfg.WebPort == 0 {
+		cfg.WebPort = 7001
+	}
+	if cfg.WebPassword == "" {
+		cfg.WebPassword = "admin123"
 	}
 
 	return &cfg, nil

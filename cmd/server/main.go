@@ -13,6 +13,7 @@ import (
 	"nexuslink/pkg/auth"
 	"nexuslink/pkg/config"
 	"nexuslink/pkg/protocol"
+	"nexuslink/pkg/web"
 )
 
 var Version = "dev"
@@ -30,6 +31,7 @@ type Proxy struct {
 	Listener   net.Listener
 	UDPConn    *net.UDPConn
 	ClientConn net.Conn
+	Active     bool
 }
 
 // Server 服务端
@@ -38,7 +40,64 @@ type Server struct {
 	auth       *auth.Auth
 	proxies    map[string]*Proxy
 	clientConn net.Conn
+	webServer  *web.WebServer
 	mu         sync.RWMutex
+	startTime  time.Time
+}
+
+// GetProxies 获取代理列表（实现ProxyManager接口）
+func (s *Server) GetProxies() []web.ProxyInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	proxies := make([]web.ProxyInfo, 0, len(s.proxies))
+	for name, p := range s.proxies {
+		proxies = append(proxies, web.ProxyInfo{
+			Name:       name,
+			Type:       string(p.Type),
+			RemotePort: p.RemotePort,
+			Active:     p.Active,
+		})
+	}
+	return proxies
+}
+
+// GetStatus 获取状态信息（实现ProxyManager接口）
+func (s *Server) GetStatus() web.StatusInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	proxies := make([]web.ProxyInfo, 0, len(s.proxies))
+	for name, p := range s.proxies {
+		proxies = append(proxies, web.ProxyInfo{
+			Name:       name,
+			Type:       string(p.Type),
+			RemotePort: p.RemotePort,
+			Active:     p.Active,
+		})
+	}
+
+	clientCount := 0
+	if s.clientConn != nil {
+		clientCount = 1
+	}
+
+	return web.StatusInfo{
+		Running:     true,
+		BindAddr:    s.cfg.BindAddr,
+		BindPort:    s.cfg.BindPort,
+		ClientCount: clientCount,
+		ProxyCount:  len(s.proxies),
+		Proxies:     proxies,
+	}
+}
+
+// addLog 添加日志
+func (s *Server) addLog(msg string) {
+	if s.webServer != nil {
+		s.webServer.AddLog(msg)
+	}
+	log.Println(msg)
 }
 
 func main() {
@@ -55,13 +114,33 @@ func main() {
 	}
 
 	server := &Server{
-		cfg:     cfg,
-		auth:    auth.NewAuth(cfg.Token),
-		proxies: make(map[string]*Proxy),
+		cfg:       cfg,
+		auth:      auth.NewAuth(cfg.Token),
+		proxies:   make(map[string]*Proxy),
+		startTime: time.Now(),
 	}
 
 	log.Printf("NexusLink Server v%s starting...", Version)
 	log.Printf("Listening on %s:%d", cfg.BindAddr, cfg.BindPort)
+
+	// 启动Web管理面板（默认启用）
+	if cfg.WebEnable || cfg.WebPassword != "" {
+		webCfg := &web.WebConfig{
+			Addr:         cfg.WebAddr,
+			Port:         cfg.WebPort,
+			AdminPassword: cfg.WebPassword,
+		}
+		server.webServer = web.NewWebServer(webCfg, server)
+		if err := server.webServer.Start(); err != nil {
+			log.Printf("Web panel start failed: %v", err)
+		} else {
+			log.Printf("Web admin panel: http://%s:%d", cfg.WebAddr, cfg.WebPort)
+			log.Printf("Web admin password: %s", cfg.WebPassword)
+		}
+	}
+
+	server.addLog(fmt.Sprintf("NexusLink Server v%s 启动", Version))
+	server.addLog(fmt.Sprintf("监听地址: %s:%d", cfg.BindAddr, cfg.BindPort))
 
 	ln, err := net.Listen("tcp", fmt.Sprintf("%s:%d", cfg.BindAddr, cfg.BindPort))
 	if err != nil {
@@ -83,7 +162,7 @@ func main() {
 func (s *Server) handleClient(conn net.Conn) {
 	defer conn.Close()
 	remoteAddr := conn.RemoteAddr().String()
-	log.Printf("New client connection from %s", remoteAddr)
+	s.addLog(fmt.Sprintf("新客户端连接: %s", remoteAddr))
 
 	// 设置超时
 	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
@@ -91,24 +170,24 @@ func (s *Server) handleClient(conn net.Conn) {
 	// 读取登录消息
 	msg, err := protocol.ReadMessage(conn)
 	if err != nil {
-		log.Printf("[%s] Read login message failed: %v", remoteAddr, err)
+		s.addLog(fmt.Sprintf("[%s] 读取登录消息失败: %v", remoteAddr, err))
 		return
 	}
 
 	if msg.Type != protocol.TypeLogin {
-		log.Printf("[%s] Expected login message, got type %d", remoteAddr, msg.Type)
+		s.addLog(fmt.Sprintf("[%s] 期望登录消息，收到类型: %d", remoteAddr, msg.Type))
 		return
 	}
 
 	login, err := protocol.ParseMessage[protocol.Login](msg)
 	if err != nil {
-		log.Printf("[%s] Parse login failed: %v", remoteAddr, err)
+		s.addLog(fmt.Sprintf("[%s] 解析登录失败: %v", remoteAddr, err))
 		return
 	}
 
 	// 验证token
 	if login.Token != s.cfg.Token {
-		log.Printf("[%s] Invalid token", remoteAddr)
+		s.addLog(fmt.Sprintf("[%s] Token无效", remoteAddr))
 		protocol.WriteMessage(conn, protocol.TypeLoginResp, protocol.LoginResp{
 			Success: false,
 			Error:   "invalid token",
@@ -119,7 +198,7 @@ func (s *Server) handleClient(conn net.Conn) {
 	// 登录成功
 	conn.SetReadDeadline(time.Time{})
 	protocol.WriteMessage(conn, protocol.TypeLoginResp, protocol.LoginResp{Success: true})
-	log.Printf("[%s] Client authenticated successfully", remoteAddr)
+	s.addLog(fmt.Sprintf("[%s] 客户端认证成功", remoteAddr))
 
 	s.mu.Lock()
 	s.clientConn = conn
@@ -135,7 +214,7 @@ func (s *Server) handleControlMessages(conn net.Conn) {
 		msg, err := protocol.ReadMessage(conn)
 		if err != nil {
 			if err != io.EOF {
-				log.Printf("Read control message error: %v", err)
+				s.addLog(fmt.Sprintf("读取控制消息错误: %v", err))
 			}
 			break
 		}
@@ -151,6 +230,7 @@ func (s *Server) handleControlMessages(conn net.Conn) {
 	// 清理资源
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	for name, proxy := range s.proxies {
 		if proxy.Listener != nil {
 			proxy.Listener.Close()
@@ -159,21 +239,22 @@ func (s *Server) handleControlMessages(conn net.Conn) {
 			proxy.UDPConn.Close()
 		}
 		delete(s.proxies, name)
-		log.Printf("Proxy [%s] closed", name)
+		s.addLog(fmt.Sprintf("代理 [%s] 已关闭", name))
 	}
+
 	s.clientConn = nil
-	log.Println("Client disconnected")
+	s.addLog("客户端断开连接")
 }
 
 // handleNewProxy 处理新建代理请求
 func (s *Server) handleNewProxy(conn net.Conn, msg *protocol.Message) {
 	newProxy, err := protocol.ParseMessage[protocol.NewProxy](msg)
 	if err != nil {
-		log.Printf("Parse new proxy failed: %v", err)
+		s.addLog(fmt.Sprintf("解析新代理失败: %v", err))
 		return
 	}
 
-	log.Printf("Creating proxy [%s] type=%s remote_port=%d", newProxy.Name, newProxy.Type, newProxy.RemotePort)
+	s.addLog(fmt.Sprintf("创建代理 [%s] 类型=%s 远程端口=%d", newProxy.Name, newProxy.Type, newProxy.RemotePort))
 
 	resp := protocol.NewProxyResp{
 		Name:    newProxy.Name,
@@ -194,6 +275,7 @@ func (s *Server) handleNewProxy(conn net.Conn, msg *protocol.Message) {
 		Type:       newProxy.Type,
 		RemotePort: newProxy.RemotePort,
 		ClientConn: conn,
+		Active:     true,
 	}
 
 	switch newProxy.Type {
@@ -201,7 +283,7 @@ func (s *Server) handleNewProxy(conn net.Conn, msg *protocol.Message) {
 		ln, err := net.Listen("tcp", fmt.Sprintf(":%d", newProxy.RemotePort))
 		if err != nil {
 			resp.Error = fmt.Sprintf("listen port %d failed: %v", newProxy.RemotePort, err)
-			log.Printf(resp.Error)
+			s.addLog(resp.Error)
 			protocol.WriteMessage(conn, protocol.TypeNewProxyResp, resp)
 			return
 		}
@@ -212,14 +294,14 @@ func (s *Server) handleNewProxy(conn net.Conn, msg *protocol.Message) {
 		addr, err := net.ResolveUDPAddr("udp", fmt.Sprintf(":%d", newProxy.RemotePort))
 		if err != nil {
 			resp.Error = fmt.Sprintf("resolve udp addr failed: %v", err)
-			log.Printf(resp.Error)
+			s.addLog(resp.Error)
 			protocol.WriteMessage(conn, protocol.TypeNewProxyResp, resp)
 			return
 		}
 		udpConn, err := net.ListenUDP("udp", addr)
 		if err != nil {
 			resp.Error = fmt.Sprintf("listen udp port %d failed: %v", newProxy.RemotePort, err)
-			log.Printf(resp.Error)
+			s.addLog(resp.Error)
 			protocol.WriteMessage(conn, protocol.TypeNewProxyResp, resp)
 			return
 		}
@@ -236,7 +318,7 @@ func (s *Server) handleNewProxy(conn net.Conn, msg *protocol.Message) {
 	resp.Success = true
 	resp.RemotePort = newProxy.RemotePort
 	protocol.WriteMessage(conn, protocol.TypeNewProxyResp, resp)
-	log.Printf("Proxy [%s] created successfully, listening on port %d", newProxy.Name, newProxy.RemotePort)
+	s.addLog(fmt.Sprintf("代理 [%s] 创建成功，监听端口 %d", newProxy.Name, newProxy.RemotePort))
 }
 
 // acceptTCPConnections 接受TCP连接
@@ -253,9 +335,8 @@ func (s *Server) acceptTCPConnections(proxy *Proxy) {
 // handleTCPUserConnection 处理TCP用户连接
 func (s *Server) handleTCPUserConnection(proxy *Proxy, userConn net.Conn) {
 	defer userConn.Close()
-
 	connID := fmt.Sprintf("%d", time.Now().UnixNano())
-	log.Printf("New TCP connection on proxy [%s], conn_id=%s", proxy.Name, connID)
+	s.addLog(fmt.Sprintf("代理 [%s] 新TCP连接, conn_id=%s", proxy.Name, connID))
 
 	// 通知客户端有新连接
 	err := protocol.WriteMessage(proxy.ClientConn, protocol.TypeNewConn, protocol.NewConn{
@@ -263,7 +344,7 @@ func (s *Server) handleTCPUserConnection(proxy *Proxy, userConn net.Conn) {
 		ConnID:    connID,
 	})
 	if err != nil {
-		log.Printf("Notify client failed: %v", err)
+		s.addLog(fmt.Sprintf("通知客户端失败: %v", err))
 		return
 	}
 
@@ -321,7 +402,7 @@ func (s *Server) forwardWithAuth(userConn, clientConn net.Conn, connID string) {
 	}()
 
 	<-errChan
-	log.Printf("Connection %s closed", connID)
+	s.addLog(fmt.Sprintf("连接 %s 关闭", connID))
 }
 
 // handleUDPConnections 处理UDP连接
@@ -340,15 +421,14 @@ func (s *Server) handleUDPConnections(proxy *Proxy) {
 		// 验证并转发到客户端
 		data, ok := s.auth.Verify(buf[:n])
 		if !ok {
-			log.Printf("Invalid UDP packet signature from %s", addr)
+			s.addLog(fmt.Sprintf("来自 %s 的UDP数据包签名无效", addr))
 			continue
 		}
 
 		// 转发到客户端控制通道(简化实现)
-		// 实际生产环境需要更复杂的UDP会话管理
 		_, err = proxy.ClientConn.Write(s.auth.Sign(data))
 		if err != nil {
-			log.Printf("Forward UDP to client failed: %v", err)
+			s.addLog(fmt.Sprintf("转发UDP到客户端失败: %v", err))
 		}
 	}
 }

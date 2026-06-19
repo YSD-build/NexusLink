@@ -1,0 +1,629 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NexusLink 管理面板</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: #f5f7fa;
+            color: #303133;
+            line-height: 1.6;
+        }
+
+        /* 登录页面 */
+        .login-page {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: #f5f7fa;
+        }
+        .login-box {
+            background: #fff;
+            padding: 40px;
+            border-radius: 8px;
+            box-shadow: 0 2px 12px rgba(0, 0, 0, 0.08);
+            width: 100%;
+            max-width: 360px;
+        }
+        .login-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .login-header h1 {
+            font-size: 24px;
+            font-weight: 500;
+            color: #303133;
+            margin-bottom: 8px;
+        }
+        .login-header p {
+            color: #909399;
+            font-size: 14px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            color: #606266;
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #dcdfe6;
+            border-radius: 4px;
+            font-size: 14px;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+        .form-group input:focus {
+            border-color: #409eff;
+        }
+        .btn {
+            width: 100%;
+            padding: 12px;
+            background: #409eff;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            font-size: 14px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        .btn:hover {
+            background: #66b1ff;
+        }
+        .btn:active {
+            background: #3a8ee6;
+        }
+        .error-msg {
+            color: #f56c6c;
+            font-size: 13px;
+            margin-top: 10px;
+            text-align: center;
+            display: none;
+        }
+
+        /* 主界面 */
+        .main-page {
+            display: none;
+        }
+        .header {
+            background: #fff;
+            border-bottom: 1px solid #ebeef5;
+            padding: 0 24px;
+            height: 60px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 100;
+        }
+        .header h1 {
+            font-size: 18px;
+            font-weight: 500;
+            color: #303133;
+        }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            font-size: 14px;
+            color: #606266;
+        }
+        .logout-btn {
+            padding: 6px 16px;
+            background: #fff;
+            border: 1px solid #dcdfe6;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            color: #606266;
+            transition: all 0.2s;
+        }
+        .logout-btn:hover {
+            color: #f56c6c;
+            border-color: #fbc4c4;
+            background: #fef0f0;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        /* 导航标签 */
+        .tabs {
+            display: flex;
+            gap: 4px;
+            margin-bottom: 24px;
+            border-bottom: 1px solid #ebeef5;
+        }
+        .tab {
+            padding: 12px 20px;
+            cursor: pointer;
+            color: #606266;
+            font-size: 14px;
+            border-bottom: 2px solid transparent;
+            margin-bottom: -1px;
+            transition: all 0.2s;
+        }
+        .tab:hover {
+            color: #409eff;
+        }
+        .tab.active {
+            color: #409eff;
+            border-bottom-color: #409eff;
+        }
+
+        /* 页面内容 */
+        .page {
+            display: none;
+        }
+        .page.active {
+            display: block;
+        }
+
+        /* 统计卡片 */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+        .stat-card {
+            background: #fff;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+        }
+        .stat-label {
+            color: #909399;
+            font-size: 13px;
+            margin-bottom: 8px;
+        }
+        .stat-value {
+            font-size: 28px;
+            font-weight: 500;
+            color: #303133;
+        }
+        .stat-value.online { color: #67c23a; }
+        .stat-value.offline { color: #909399; }
+
+        /* 卡片 */
+        .card {
+            background: #fff;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 24px;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+        }
+        .card-title {
+            font-size: 16px;
+            font-weight: 500;
+            margin-bottom: 16px;
+            color: #303133;
+        }
+
+        /* 表格 */
+        .proxy-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .proxy-table th,
+        .proxy-table td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid #ebeef5;
+            font-size: 14px;
+        }
+        .proxy-table th {
+            color: #909399;
+            font-weight: 400;
+            background: #fafafa;
+        }
+        .proxy-table tr:last-child td {
+            border-bottom: none;
+        }
+        .status-badge {
+            display: inline-block;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 12px;
+        }
+        .status-badge.active {
+            background: #f0f9eb;
+            color: #67c23a;
+        }
+        .status-badge.inactive {
+            background: #f4f4f5;
+            color: #909399;
+        }
+        .empty {
+            text-align: center;
+            padding: 40px;
+            color: #909399;
+            font-size: 14px;
+        }
+
+        /* 日志 */
+        .log-container {
+            background: #fff;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+            height: calc(100vh - 200px);
+            display: flex;
+            flex-direction: column;
+        }
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        .log-header h3 {
+            font-size: 16px;
+            font-weight: 500;
+            color: #303133;
+        }
+        .clear-btn {
+            padding: 6px 16px;
+            background: #fff;
+            border: 1px solid #dcdfe6;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            color: #606266;
+            transition: all 0.2s;
+        }
+        .clear-btn:hover {
+            color: #f56c6c;
+            border-color: #fbc4c4;
+            background: #fef0f0;
+        }
+        .log-content {
+            flex: 1;
+            overflow-y: auto;
+            background: #fafafa;
+            border-radius: 4px;
+            padding: 16px;
+            font-family: "SF Mono", Monaco, Inconsolata, "Roboto Mono", monospace;
+            font-size: 13px;
+            line-height: 1.8;
+            color: #606266;
+        }
+        .log-line {
+            margin-bottom: 4px;
+        }
+        .log-time {
+            color: #909399;
+            margin-right: 12px;
+        }
+
+        /* 页脚 */
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #c0c4cc;
+            font-size: 12px;
+        }
+    </style>
+</head>
+<body>
+    <!-- 登录页面 -->
+    <div class="login-page" id="loginPage">
+        <div class="login-box">
+            <div class="login-header">
+                <h1>NexusLink</h1>
+                <p>内网穿透服务管理面板</p>
+            </div>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label>管理密码</label>
+                    <input type="password" id="password" placeholder="请输入管理密码" autocomplete="current-password">
+                </div>
+                <button type="submit" class="btn">登 录</button>
+                <div class="error-msg" id="errorMsg">密码错误，请重试</div>
+            </form>
+        </div>
+    </div>
+
+    <!-- 主界面 -->
+    <div class="main-page" id="mainPage">
+        <div class="header">
+            <h1>NexusLink 管理面板</h1>
+            <div class="header-right">
+                <span id="versionText">v0.0.0</span>
+                <button class="logout-btn" onclick="logout()">退出登录</button>
+            </div>
+        </div>
+
+        <div class="container">
+            <div class="tabs">
+                <div class="tab active" data-page="dashboard">概览</div>
+                <div class="tab" data-page="proxies">代理</div>
+                <div class="tab" data-page="logs">日志</div>
+            </div>
+
+            <!-- 概览页面 -->
+            <div class="page active" id="dashboardPage">
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-label">服务状态</div>
+                        <div class="stat-value online" id="serviceStatus">运行中</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">客户端连接</div>
+                        <div class="stat-value" id="clientCount">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">代理数量</div>
+                        <div class="stat-value" id="proxyCount">0</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">监听端口</div>
+                        <div class="stat-value" id="bindPort" style="font-size: 22px;">--</div>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-title">代理列表</div>
+                    <table class="proxy-table">
+                        <thead>
+                            <tr>
+                                <th>代理名称</th>
+                                <th>类型</th>
+                                <th>远程端口</th>
+                                <th>状态</th>
+                            </tr>
+                        </thead>
+                        <tbody id="proxyTableBody">
+                            <tr><td colspan="4" class="empty">暂无代理</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 代理页面 -->
+            <div class="page" id="proxiesPage">
+                <div class="card">
+                    <div class="card-title">全部代理</div>
+                    <table class="proxy-table">
+                        <thead>
+                            <tr>
+                                <th>代理名称</th>
+                                <th>类型</th>
+                                <th>远程端口</th>
+                                <th>本地地址</th>
+                                <th>本地端口</th>
+                                <th>状态</th>
+                            </tr>
+                        </thead>
+                        <tbody id="proxyTableBodyFull">
+                            <tr><td colspan="6" class="empty">暂无代理</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- 日志页面 -->
+            <div class="page" id="logsPage">
+                <div class="log-container">
+                    <div class="log-header">
+                        <h3>运行日志</h3>
+                        <button class="clear-btn" onclick="clearLogs()">清空日志</button>
+                    </div>
+                    <div class="log-content" id="logContent">
+                        <div class="log-line"><span class="log-time">--:--:--</span>加载中...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="footer">
+            NexusLink · 安全内网穿透
+        </div>
+    </div>
+
+    <script>
+        let token = localStorage.getItem('nexuslink_token') || '';
+
+        // 检查登录状态
+        if (token) {
+            showMainPage();
+            loadData();
+            setInterval(loadData, 30000); // 每30秒刷新
+        }
+
+        // 登录
+        document.getElementById('loginForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            const password = document.getElementById('password').value;
+            const errorMsg = document.getElementById('errorMsg');
+            
+            try {
+                const res = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ password })
+                });
+                
+                const data = await res.json();
+                if (res.ok && data.token) {
+                    token = data.token;
+                    localStorage.setItem('nexuslink_token', token);
+                    showMainPage();
+                    loadData();
+                } else {
+                    errorMsg.style.display = 'block';
+                }
+            } catch (err) {
+                errorMsg.style.display = 'block';
+            }
+        });
+
+        // 显示主界面
+        function showMainPage() {
+            document.getElementById('loginPage').style.display = 'none';
+            document.getElementById('mainPage').style.display = 'block';
+        }
+
+        // 退出登录
+        function logout() {
+            token = '';
+            localStorage.removeItem('nexuslink_token');
+            location.reload();
+        }
+
+        // 标签切换
+        document.querySelectorAll('.tab').forEach(tab => {
+            tab.addEventListener('click', function() {
+                const page = this.dataset.page;
+                
+                // 更新标签状态
+                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+                this.classList.add('active');
+                
+                // 更新页面显示
+                document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+                document.getElementById(page + 'Page').classList.add('active');
+                
+                // 如果是日志页面，加载日志
+                if (page === 'logs') {
+                    loadLogs();
+                }
+            });
+        });
+
+        // 加载数据
+        async function loadData() {
+            try {
+                const res = await fetch('/api/status', {
+                    headers: { 'Authorization': token }
+                });
+                
+                if (res.status === 401) {
+                    logout();
+                    return;
+                }
+                
+                const data = await res.json();
+                updateDashboard(data);
+                updateProxyList(data.proxies || []);
+            } catch (err) {
+                console.error('加载数据失败:', err);
+            }
+        }
+
+        // 更新仪表盘
+        function updateDashboard(data) {
+            document.getElementById('versionText').textContent = 'v0.2.2.beta';
+            
+            const serviceStatus = document.getElementById('serviceStatus');
+            if (data.running) {
+                serviceStatus.textContent = '运行中';
+                serviceStatus.className = 'stat-value online';
+            } else {
+                serviceStatus.textContent = '已停止';
+                serviceStatus.className = 'stat-value offline';
+            }
+            
+            document.getElementById('clientCount').textContent = data.clientCount || 0;
+            document.getElementById('proxyCount').textContent = data.proxyCount || 0;
+            document.getElementById('bindPort').textContent = data.bindPort || '--';
+        }
+
+        // 更新代理列表
+        function updateProxyList(proxies) {
+            const tbody = document.getElementById('proxyTableBody');
+            const tbodyFull = document.getElementById('proxyTableBodyFull');
+            
+            if (proxies.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="4" class="empty">暂无代理</td></tr>';
+                tbodyFull.innerHTML = '<tr><td colspan="6" class="empty">暂无代理</td></tr>';
+                return;
+            }
+            
+            // 概览页面的代理列表（简化版）
+            tbody.innerHTML = proxies.map(p => `
+                <tr>
+                    <td>${p.name}</td>
+                    <td>${p.type ? p.type.toUpperCase() : 'TCP'}</td>
+                    <td>${p.remotePort || '--'}</td>
+                    <td><span class="status-badge ${p.active ? 'active' : 'inactive'}">${p.active ? '运行中' : '未激活'}</span></td>
+                </tr>
+            `).join('');
+            
+            // 代理页面的完整列表
+            tbodyFull.innerHTML = proxies.map(p => `
+                <tr>
+                    <td>${p.name}</td>
+                    <td>${p.type ? p.type.toUpperCase() : 'TCP'}</td>
+                    <td>${p.remotePort || '--'}</td>
+                    <td>${p.localAddr || '--'}</td>
+                    <td>${p.localPort || '--'}</td>
+                    <td><span class="status-badge ${p.active ? 'active' : 'inactive'}">${p.active ? '运行中' : '未激活'}</span></td>
+                </tr>
+            `).join('');
+        }
+
+        // 加载日志
+        async function loadLogs() {
+            try {
+                const res = await fetch('/api/logs', {
+                    headers: { 'Authorization': token }
+                });
+                
+                if (res.status === 401) {
+                    logout();
+                    return;
+                }
+                
+                const data = await res.json();
+                const logContent = document.getElementById('logContent');
+                
+                if (data.logs && data.logs.length > 0) {
+                    logContent.innerHTML = data.logs.map(log => `
+                        <div class="log-line"><span class="log-time">${log.time}</span>${log.msg}</div>
+                    `).join('');
+                    logContent.scrollTop = logContent.scrollHeight;
+                } else {
+                    logContent.innerHTML = '<div class="log-line"><span class="log-time">--:--:--</span>暂无日志</div>';
+                }
+            } catch (err) {
+                console.error('加载日志失败:', err);
+            }
+        }
+
+        // 清空日志
+        async function clearLogs() {
+            if (!confirm('确定要清空所有日志吗？')) return;
+            
+            try {
+                const res = await fetch('/api/logs', {
+                    method: 'DELETE',
+                    headers: { 'Authorization': token }
+                });
+                
+                if (res.ok) {
+                    loadLogs();
+                }
+            } catch (err) {
+                console.error('清空日志失败:', err);
+            }
+        }
+    </script>
+</body>
+</html>
