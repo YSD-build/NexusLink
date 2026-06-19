@@ -19,18 +19,18 @@ jobs:
           mkdir -p dist
           
           # 服务端 4个
-          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -o dist/nexuslink-server-${GITHUB_REF_NAME}-linux-x86_64 ./cmd/server
-          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-s -w" -o dist/nexuslink-server-${GITHUB_REF_NAME}-linux-armv8 ./cmd/server
-          GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build -ldflags "-s -w" -o dist/nexuslink-server-${GITHUB_REF_NAME}-linux-armv7 ./cmd/server
-          GOOS=linux GOARCH=arm GOARM=6 CGO_ENABLED=0 go build -ldflags "-s -w" -o dist/nexuslink-server-${GITHUB_REF_NAME}-linux-armv6 ./cmd/server
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" -o dist/nexuslink-server-${GITHUB_REF_NAME}-linux-x86_64 ./cmd/server
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" -o dist/nexuslink-server-${GITHUB_REF_NAME}-linux-armv8 ./cmd/server
+          GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" -o dist/nexuslink-server-${GITHUB_REF_NAME}-linux-armv7 ./cmd/server
+          GOOS=linux GOARCH=arm GOARM=6 CGO_ENABLED=0 go build -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" -o dist/nexuslink-server-${GITHUB_REF_NAME}-linux-armv6 ./cmd/server
           
           # 客户端 6个（去掉android-armv7，需要cgo）
-          GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-s -w" -o dist/nexuslink-client-${GITHUB_REF_NAME}-android-arm64 ./cmd/client
-          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -o dist/nexuslink-client-${GITHUB_REF_NAME}-linux-x86_64 ./cmd/client
-          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-s -w" -o dist/nexuslink-client-${GITHUB_REF_NAME}-linux-armv8 ./cmd/client
-          GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build -ldflags "-s -w" -o dist/nexuslink-client-${GITHUB_REF_NAME}-linux-armv7 ./cmd/client
-          GOOS=linux GOARCH=arm GOARM=6 CGO_ENABLED=0 go build -ldflags "-s -w" -o dist/nexuslink-client-${GITHUB_REF_NAME}-linux-armv6 ./cmd/client
-          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w" -o dist/nexuslink-client-${GITHUB_REF_NAME}-windows-x86_64.exe ./cmd/client
+          GOOS=android GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" -o dist/nexuslink-client-${GITHUB_REF_NAME}-android-arm64 ./cmd/client
+          GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" -o dist/nexuslink-client-${GITHUB_REF_NAME}-linux-x86_64 ./cmd/client
+          GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" -o dist/nexuslink-client-${GITHUB_REF_NAME}-linux-armv8 ./cmd/client
+          GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" -o dist/nexuslink-client-${GITHUB_REF_NAME}-linux-armv7 ./cmd/client
+          GOOS=linux GOARCH=arm GOARM=6 CGO_ENABLED=0 go build -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" -o dist/nexuslink-client-${GITHUB_REF_NAME}-linux-armv6 ./cmd/client
+          GOOS=windows GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "-s -w -X main.Version=${GITHUB_REF_NAME}" -o dist/nexuslink-client-${GITHUB_REF_NAME}-windows-x86_64.exe ./cmd/client
           
           ls -lh dist/
           
@@ -92,19 +92,33 @@ jobs:
           ./nexuslink-client-android-arm64 -c client.yaml
           \`\`\`
           
-          ## 🎛️ Web 管理面板 (新增)
-          | 文件 | 说明 |
-          |------|------|
-          | nexuslink-web-panel-${{ github.ref_name }}.zip | Web管理面板完整包（含x86_64二进制） |
+          ## ✨ 新特性：内置 Web 管理面板
+          
+          **服务端已内置 Web 管理面板，无需单独部署！**
           
           **功能特性：**
+          - ✅ 简约白色设计，干净整洁
           - ✅ 密码登录认证，保护管理界面
-          - ✅ 仪表盘：服务状态总览、统计卡片
-          - ✅ 可视化配置编辑：服务端/客户端配置
-          - ✅ 代理管理：添加、删除、列表展示
-          - ✅ 实时日志：WebSocket推送，自动滚动
-          - ✅ 系统信息：版本、体积、安全特性
-          - ✅ 现代化UI：深色主题、玻璃拟态效果
+          - ✅ 概览页面：服务状态、客户端连接、代理数量统计
+          - ✅ 代理管理：完整代理列表展示
+          - ✅ 运行日志：实时查看服务日志
+          - ✅ 安全机制：SHA256密码哈希、Token认证、安全响应头
+          
+          **启用方式：**
+          在 server.yaml 中添加配置：
+          \`\`\`yaml
+          web_enable: true
+          web_addr: 127.0.0.1
+          web_port: 7001
+          web_password: your_password
+          \`\`\`
+          
+          启动服务端后访问 http://127.0.0.1:7001
+          
+          ## 🎛️ 独立 Web 管理面板 (可选)
+          | 文件 | 说明 |
+          |------|------|
+          | nexuslink-web-panel-${{ github.ref_name }}.zip | 独立Node.js版Web管理面板（含x86_64二进制） |
           
           **快速启动：**
           \`\`\`bash
