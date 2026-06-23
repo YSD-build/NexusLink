@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -27,6 +28,9 @@ var (
 	tunnelID   = flag.String("id", "", "tunnel ID (start only specified tunnel)")
 	apiAddr    = flag.String("api", "", "API server address (for fetching config by ID)")
 	apiToken   = flag.String("token", "", "API auth token (JWT)")
+	apiKey     = flag.String("api-key", "", "API key for authentication")
+	reportAddr = flag.String("report", "", "traffic report server address (default same as api)")
+	reportInterval = flag.Int("report-interval", 30, "traffic report interval in seconds")
 )
 
 // Proxy 代理配置
@@ -36,15 +40,21 @@ type Proxy struct {
 	LocalAddr  string
 	LocalPort  int
 	RemotePort int
+	BytesIn    int64
+	BytesOut   int64
 }
 
 // Client 客户端
 type Client struct {
-	cfg     *config.ClientConfig
-	auth    *auth.Auth
-	proxies map[string]*Proxy
-	conn    net.Conn
-	mu      sync.RWMutex
+	cfg        *config.ClientConfig
+	auth       *auth.Auth
+	proxies    map[string]*Proxy
+	conn       net.Conn
+	mu         sync.RWMutex
+	apiAddr    string
+	apiKey     string
+	tunnelID   string
+	reportAddr string
 }
 
 func main() {
@@ -56,7 +66,7 @@ func main() {
 	// 方式一：通过 API + ID 获取配置
 	if *apiAddr != "" && *tunnelID != "" {
 		log.Printf("Fetching config from API: %s, tunnel ID: %s", *apiAddr, *tunnelID)
-		cfg, err = fetchConfigFromAPI(*apiAddr, *tunnelID, *apiToken)
+		cfg, err = fetchConfigFromAPI(*apiAddr, *tunnelID, *apiToken, *apiKey)
 		if err != nil {
 			log.Fatalf("Fetch config from API failed: %v", err)
 		}
@@ -86,14 +96,27 @@ func main() {
 	}
 
 	client := &Client{
-		cfg:     cfg,
-		auth:    auth.NewAuth(cfg.Token),
-		proxies: make(map[string]*Proxy),
+		cfg:        cfg,
+		auth:       auth.NewAuth(cfg.Token),
+		proxies:    make(map[string]*Proxy),
+		apiAddr:    *apiAddr,
+		apiKey:     *apiKey,
+		tunnelID:   *tunnelID,
+		reportAddr: *reportAddr,
 	}
 
 	log.Printf("NexusLink Client v%s starting...", Version)
 	log.Printf("Connecting to server %s:%d", cfg.ServerIP, cfg.ServerPort)
 	log.Printf("Proxies to start: %d", len(cfg.Proxies))
+
+	// 启动流量上报
+	if *apiKey != "" {
+		if *reportAddr == "" {
+			client.reportAddr = *apiAddr
+		}
+		go client.startTrafficReporter()
+		log.Printf("Traffic reporter started, interval: %ds", *reportInterval)
+	}
 
 	for {
 		err := client.connect()
@@ -111,14 +134,21 @@ func main() {
 }
 
 // fetchConfigFromAPI 从 API 获取隧道配置
-func fetchConfigFromAPI(apiAddr, tunnelID, token string) (*config.ClientConfig, error) {
+func fetchConfigFromAPI(apiAddr, tunnelID, token, apiKey string) (*config.ClientConfig, error) {
 	// 确保 API 地址格式正确
 	if !strings.HasPrefix(apiAddr, "http") {
 		apiAddr = "https://" + apiAddr
 	}
 	apiAddr = strings.TrimRight(apiAddr, "/")
 
-	url := fmt.Sprintf("%s/tunnel.php?action=config&id=%s", apiAddr, tunnelID)
+	var url string
+	if apiKey != "" {
+		// 使用 API 密钥认证
+		url = fmt.Sprintf("%s/api/tunnel.php?action=api_config&id=%s", apiAddr, tunnelID)
+	} else {
+		// 使用 JWT token 认证
+		url = fmt.Sprintf("%s/api/tunnel.php?action=config&id=%s", apiAddr, tunnelID)
+	}
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
@@ -127,6 +157,9 @@ func fetchConfigFromAPI(apiAddr, tunnelID, token string) (*config.ClientConfig, 
 
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	if apiKey != "" {
+		req.Header.Set("X-API-Key", apiKey)
 	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
@@ -316,17 +349,17 @@ func (c *Client) handleNewConn(msg *protocol.Message) {
 	}
 
 	// 带认证双向转发
-	go c.forwardWithAuth(localConn, c.conn, newConn.ConnID)
+	go c.forwardWithAuth(localConn, c.conn, newConn.ConnID, proxy)
 }
 
 // forwardWithAuth 带认证的数据转发
-func (c *Client) forwardWithAuth(localConn, serverConn net.Conn, connID string) {
+func (c *Client) forwardWithAuth(localConn, serverConn net.Conn, connID string, proxy *Proxy) {
 	defer localConn.Close()
 
 	errChan := make(chan error, 2)
 	bufSize := 32 * 1024
 
-	// server -> local (验证)
+	// server -> local (验证) - 入站流量
 	go func() {
 		buf := make([]byte, bufSize+auth.HeaderSize)
 		for {
@@ -337,6 +370,8 @@ func (c *Client) forwardWithAuth(localConn, serverConn net.Conn, connID string) 
 					errChan <- fmt.Errorf("invalid signature")
 					return
 				}
+				// 统计入站流量
+				atomic.AddInt64(&proxy.BytesIn, int64(len(data)))
 				_, writeErr := localConn.Write(data)
 				if writeErr != nil {
 					errChan <- writeErr
@@ -350,12 +385,14 @@ func (c *Client) forwardWithAuth(localConn, serverConn net.Conn, connID string) 
 		}
 	}()
 
-	// local -> server (签名)
+	// local -> server (签名) - 出站流量
 	go func() {
 		buf := make([]byte, bufSize)
 		for {
 			n, err := localConn.Read(buf)
 			if n > 0 {
+				// 统计出站流量
+				atomic.AddInt64(&proxy.BytesOut, int64(n))
 				signed := c.auth.Sign(buf[:n])
 				_, writeErr := serverConn.Write(signed)
 				if writeErr != nil {
@@ -372,4 +409,96 @@ func (c *Client) forwardWithAuth(localConn, serverConn net.Conn, connID string) 
 
 	<-errChan
 	log.Printf("Connection %s closed", connID)
+}
+
+// startTrafficReporter 启动流量上报定时器
+func (c *Client) startTrafficReporter() {
+	interval := time.Duration(*reportInterval) * time.Second
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		c.reportTraffic()
+	}
+}
+
+// reportTraffic 上报流量到服务器
+func (c *Client) reportTraffic() {
+	if c.reportAddr == "" || c.apiKey == "" {
+		return
+	}
+
+	// 累加所有隧道的流量
+	var totalBytesIn, totalBytesOut int64
+	c.mu.RLock()
+	for _, proxy := range c.proxies {
+		totalBytesIn += atomic.LoadInt64(&proxy.BytesIn)
+		totalBytesOut += atomic.LoadInt64(&proxy.BytesOut)
+	}
+	c.mu.RUnlock()
+
+	if totalBytesIn == 0 && totalBytesOut == 0 {
+		return
+	}
+
+	// 确保地址格式正确
+	reportAddr := c.reportAddr
+	if !strings.HasPrefix(reportAddr, "http") {
+		reportAddr = "https://" + reportAddr
+	}
+	reportAddr = strings.TrimRight(reportAddr, "/")
+
+	url := fmt.Sprintf("%s/api/tunnel.php?action=traffic_report", reportAddr)
+
+	// 构造 POST 数据
+	formData := fmt.Sprintf("tunnel_id=%s&bytes_in=%d&bytes_out=%d",
+		c.tunnelID, totalBytesIn, totalBytesOut)
+
+	req, err := http.NewRequest("POST", url, strings.NewReader(formData))
+	if err != nil {
+		log.Printf("Create traffic report request failed: %v", err)
+		return
+	}
+
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("X-API-Key", c.apiKey)
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("Traffic report failed: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(resp.Body)
+
+	var apiResp struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+		Data struct {
+			TrafficText string `json:"traffic_text"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		log.Printf("Parse traffic report response failed: %v", err)
+		return
+	}
+
+	if apiResp.Code != 0 {
+		log.Printf("Traffic report error: %s", apiResp.Msg)
+		return
+	}
+
+	log.Printf("Traffic reported: in=%d, out=%d, %s",
+		totalBytesIn, totalBytesOut, apiResp.Data.TrafficText)
+
+	// 重置已上报的流量计数（避免重复上报）
+	c.mu.RLock()
+	for _, proxy := range c.proxies {
+		atomic.AddInt64(&proxy.BytesIn, -totalBytesIn)
+		atomic.AddInt64(&proxy.BytesOut, -totalBytesOut)
+	}
+	c.mu.RUnlock()
 }
