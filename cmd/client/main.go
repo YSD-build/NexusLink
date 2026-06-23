@@ -2,13 +2,18 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net"
+	"net/http"
+	"strings"
 	"sync"
 	"time"
+
+	"gopkg.in/yaml.v3"
 
 	"nexuslink/pkg/auth"
 	"nexuslink/pkg/config"
@@ -19,6 +24,9 @@ var Version = "dev"
 
 var (
 	configFile = flag.String("c", "client.yaml", "config file path")
+	tunnelID   = flag.String("id", "", "tunnel ID (start only specified tunnel)")
+	apiAddr    = flag.String("api", "", "API server address (for fetching config by ID)")
+	apiToken   = flag.String("token", "", "API auth token (JWT)")
 )
 
 // Proxy 代理配置
@@ -42,9 +50,39 @@ type Client struct {
 func main() {
 	flag.Parse()
 
-	cfg, err := config.LoadClientConfig(*configFile)
-	if err != nil {
-		log.Fatalf("Load config failed: %v", err)
+	var cfg *config.ClientConfig
+	var err error
+
+	// 方式一：通过 API + ID 获取配置
+	if *apiAddr != "" && *tunnelID != "" {
+		log.Printf("Fetching config from API: %s, tunnel ID: %s", *apiAddr, *tunnelID)
+		cfg, err = fetchConfigFromAPI(*apiAddr, *tunnelID, *apiToken)
+		if err != nil {
+			log.Fatalf("Fetch config from API failed: %v", err)
+		}
+		log.Println("Config fetched from API successfully")
+	} else {
+		// 方式二：从配置文件加载
+		cfg, err = config.LoadClientConfig(*configFile)
+		if err != nil {
+			log.Fatalf("Load config failed: %v", err)
+		}
+
+		// 如果指定了 -id，只保留对应 ID 的隧道
+		if *tunnelID != "" {
+			filtered := make(map[string]config.ProxyConfig)
+			// 支持两种格式：直接用 ID 作为 key，或者 tunnel_{ID} 作为 key
+			for name, proxy := range cfg.Proxies {
+				if name == *tunnelID || name == "tunnel_"+*tunnelID {
+					filtered[name] = proxy
+					log.Printf("Selected tunnel: %s", name)
+				}
+			}
+			if len(filtered) == 0 {
+				log.Fatalf("Tunnel ID %s not found in config", *tunnelID)
+			}
+			cfg.Proxies = filtered
+		}
 	}
 
 	client := &Client{
@@ -55,6 +93,7 @@ func main() {
 
 	log.Printf("NexusLink Client v%s starting...", Version)
 	log.Printf("Connecting to server %s:%d", cfg.ServerIP, cfg.ServerPort)
+	log.Printf("Proxies to start: %d", len(cfg.Proxies))
 
 	for {
 		err := client.connect()
@@ -69,6 +108,71 @@ func main() {
 		log.Printf("Disconnected, reconnecting in 5s...")
 		time.Sleep(5 * time.Second)
 	}
+}
+
+// fetchConfigFromAPI 从 API 获取隧道配置
+func fetchConfigFromAPI(apiAddr, tunnelID, token string) (*config.ClientConfig, error) {
+	// 确保 API 地址格式正确
+	if !strings.HasPrefix(apiAddr, "http") {
+		apiAddr = "https://" + apiAddr
+	}
+	apiAddr = strings.TrimRight(apiAddr, "/")
+
+	url := fmt.Sprintf("%s/tunnel.php?action=config&id=%s", apiAddr, tunnelID)
+
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request API: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+
+	// 解析 API 响应
+	var apiResp struct {
+		Code int    `json:"code"`
+		Msg  string `json:"msg"`
+		Data struct {
+			Config string `json:"config"`
+		} `json:"data"`
+	}
+
+	if err := json.Unmarshal(body, &apiResp); err != nil {
+		return nil, fmt.Errorf("parse API response: %w", err)
+	}
+
+	if apiResp.Code != 0 {
+		return nil, fmt.Errorf("API error: %s", apiResp.Msg)
+	}
+
+	// 解析配置文件内容（yaml 格式）
+	var cfg config.ClientConfig
+	if err := yaml.Unmarshal([]byte(apiResp.Data.Config), &cfg); err != nil {
+		return nil, fmt.Errorf("parse config: %w", err)
+	}
+
+	// 设置默认值
+	if cfg.ServerIP == "" {
+		cfg.ServerIP = "127.0.0.1"
+	}
+	if cfg.ServerPort == 0 {
+		cfg.ServerPort = 7000
+	}
+
+	return &cfg, nil
 }
 
 // connect 连接到服务端
