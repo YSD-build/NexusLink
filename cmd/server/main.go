@@ -13,6 +13,7 @@ import (
 	"nexuslink/pkg/auth"
 	"nexuslink/pkg/config"
 	"nexuslink/pkg/protocol"
+	"nexuslink/pkg/security"
 	"nexuslink/pkg/web"
 )
 
@@ -41,6 +42,7 @@ type Server struct {
 	proxies    map[string]*Proxy
 	clientConn net.Conn
 	webServer  *web.WebServer
+	connGuard  *security.ConnGuard // 第一防：连接守卫
 	mu         sync.RWMutex
 	startTime  time.Time
 }
@@ -143,6 +145,7 @@ func main() {
 		cfg:       cfg,
 		auth:      auth.NewAuth(cfg.Token),
 		proxies:   make(map[string]*Proxy),
+		connGuard: security.NewConnGuard(), // 初始化连接守卫
 		startTime: time.Now(),
 	}
 
@@ -188,20 +191,30 @@ func main() {
 func (s *Server) handleClient(conn net.Conn) {
 	defer conn.Close()
 	remoteAddr := conn.RemoteAddr().String()
+
+	// 第一防：连接层检查
+	if !s.connGuard.Check(conn) {
+		return
+	}
+	defer s.connGuard.Release(conn)
+
 	s.addLog(fmt.Sprintf("新客户端连接: %s", remoteAddr))
 
 	// 设置超时
 	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
 
-	// 读取登录消息
+	// 读取登录消息（第二防：协议层校验在 ReadMessage 内部）
 	msg, err := protocol.ReadMessage(conn)
 	if err != nil {
 		s.addLog(fmt.Sprintf("[%s] 读取登录消息失败: %v", remoteAddr, err))
+		// 协议校验失败，拉黑
+		s.connGuard.BanForBadBehavior(conn, err.Error())
 		return
 	}
 
 	if msg.Type != protocol.TypeLogin {
 		s.addLog(fmt.Sprintf("[%s] 期望登录消息，收到类型: %d", remoteAddr, msg.Type))
+		s.connGuard.BanForBadBehavior(conn, "消息类型错误")
 		return
 	}
 
@@ -211,7 +224,7 @@ func (s *Server) handleClient(conn net.Conn) {
 		return
 	}
 
-	// 验证token
+	// 验证token（第三防：应用层）
 	if login.Token != s.cfg.Token {
 		s.addLog(fmt.Sprintf("[%s] Token无效", remoteAddr))
 		protocol.WriteMessage(conn, protocol.TypeLoginResp, protocol.LoginResp{
