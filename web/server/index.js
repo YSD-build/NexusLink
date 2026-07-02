@@ -21,9 +21,9 @@ const AUTH = {
   token: null // 登录后生成的token
 };
 
-// 生成随机token
+// 生成随机token（兼容旧代码）
 function generateToken() {
-  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+  return generateSecureToken();
 }
 
 // 认证中间件
@@ -34,14 +34,130 @@ function authMiddleware(req, res, next) {
   }
   
   const token = req.headers['authorization'] || req.query.token;
+  
+  // 检查 Token 是否存在且匹配
   if (AUTH.token && token === AUTH.token) {
+    // 检查是否过期
+    if (isTokenExpired()) {
+      AUTH.token = null;
+      tokenExpireTime = null;
+      return res.status(401).json({ success: false, message: '登录已过期，请重新登录' });
+    }
+    // 活跃用户自动续期
+    refreshTokenExpire();
     next();
   } else {
     res.status(401).json({ success: false, message: '未授权' });
   }
 }
 
+// ========== 安全功能 ==========
+
+// 安全响应头中间件
+function securityHeaders(req, res, next) {
+  // 防止 MIME 类型嗅探
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  
+  // 防止点击劫持
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  
+  // XSS 防护
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  
+  // 内容安全策略
+  res.setHeader('Content-Security-Policy', 
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:");
+  
+  // Referrer 策略
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  
+  next();
+}
+
+// 登录限流配置
+const loginAttempts = new Map(); // IP -> { count, lockUntil }
+const MAX_LOGIN_ATTEMPTS = 5;
+const LOCK_DURATION = 15 * 60 * 1000; // 15分钟锁定
+
+// 检查登录限流
+function checkLoginRateLimit(ip) {
+  const now = Date.now();
+  const attempt = loginAttempts.get(ip);
+  
+  if (!attempt) {
+    return { allowed: true };
+  }
+  
+  // 如果已锁定
+  if (attempt.lockUntil && now < attempt.lockUntil) {
+    const remaining = Math.ceil((attempt.lockUntil - now) / 60000);
+    return { allowed: false, remaining };
+  }
+  
+  // 锁定已过期，重置
+  if (attempt.lockUntil && now >= attempt.lockUntil) {
+    loginAttempts.delete(ip);
+    return { allowed: true };
+  }
+  
+  return { allowed: attempt.count < MAX_LOGIN_ATTEMPTS };
+}
+
+// 记录登录失败
+function recordLoginFailure(ip) {
+  const now = Date.now();
+  let attempt = loginAttempts.get(ip);
+  
+  if (!attempt) {
+    attempt = { count: 0, lockUntil: null };
+    loginAttempts.set(ip, attempt);
+  }
+  
+  attempt.count++;
+  
+  if (attempt.count >= MAX_LOGIN_ATTEMPTS) {
+    attempt.lockUntil = now + LOCK_DURATION;
+  }
+}
+
+// 记录登录成功（重置计数）
+function recordLoginSuccess(ip) {
+  loginAttempts.delete(ip);
+}
+
+// 获取客户端真实 IP
+function getClientIP(req) {
+  return req.headers['x-forwarded-for']?.split(',')[0]?.trim() 
+    || req.headers['x-real-ip'] 
+    || req.ip 
+    || req.connection.remoteAddress;
+}
+
+// Token 过期配置
+const TOKEN_EXPIRE_TIME = 24 * 60 * 60 * 1000; // 24小时过期
+let tokenExpireTime = null;
+
+// 检查 Token 是否过期
+function isTokenExpired() {
+  if (!AUTH.token || !tokenExpireTime) {
+    return true;
+  }
+  return Date.now() > tokenExpireTime;
+}
+
+// 刷新 Token 过期时间（活跃用户自动续期）
+function refreshTokenExpire() {
+  tokenExpireTime = Date.now() + TOKEN_EXPIRE_TIME;
+}
+
+// 生成更安全的随机 Token
+function generateSecureToken() {
+  const crypto = require('crypto');
+  return crypto.randomBytes(32).toString('hex');
+}
+
 // 中间件
+app.use(securityHeaders);
 app.use(cors());
 app.use(express.json());
 
@@ -215,18 +331,46 @@ function addLog(type, line) {
 
 // 登录
 app.post('/api/login', (req, res) => {
+  const ip = getClientIP(req);
+  
+  // 检查是否被限流
+  const rateLimit = checkLoginRateLimit(ip);
+  if (!rateLimit.allowed) {
+    return res.status(429).json({ 
+      success: false, 
+      message: `登录尝试次数过多，请${rateLimit.remaining}分钟后再试` 
+    });
+  }
+  
   const { password } = req.body;
+  
   if (password === AUTH.password) {
+    // 登录成功，重置计数并生成 Token
+    recordLoginSuccess(ip);
     AUTH.token = generateToken();
-    res.json({ success: true, token: AUTH.token });
+    tokenExpireTime = Date.now() + TOKEN_EXPIRE_TIME;
+    res.json({ 
+      success: true, 
+      token: AUTH.token,
+      expireIn: TOKEN_EXPIRE_TIME / 1000
+    });
   } else {
-    res.status(401).json({ success: false, message: '密码错误' });
+    // 登录失败，记录计数
+    recordLoginFailure(ip);
+    const remaining = MAX_LOGIN_ATTEMPTS - (loginAttempts.get(ip)?.count || 1);
+    res.status(401).json({ 
+      success: false, 
+      message: remaining > 0 
+        ? `密码错误，还剩${remaining}次尝试机会` 
+        : '密码错误，账户已锁定15分钟'
+    });
   }
 });
 
 // 登出
 app.post('/api/logout', (req, res) => {
   AUTH.token = null;
+  tokenExpireTime = null;
   res.json({ success: true });
 });
 
