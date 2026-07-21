@@ -50,6 +50,7 @@ type WebConfig struct {
 	Addr          string
 	Port          int
 	AdminPassword string
+	TrustProxy    bool // 是否信任 X-Forwarded-For 取客户端IP（仅部署在可信反向代理后才设 true）
 }
 
 // ProxyManager 代理管理器接口
@@ -221,11 +222,13 @@ func generateCSRFToken() string {
 	return hex.EncodeToString(b)
 }
 
-// 获取客户端IP
-func getClientIP(r *http.Request) string {
-	// 优先从X-Forwarded-For获取（如果有反向代理）
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		return xff
+// 获取客户端IP（方法：依据 WebConfig.TrustProxy 决定是否信任 X-Forwarded-For）
+func (ws *WebServer) getClientIP(r *http.Request) string {
+	// 仅当显式配置信任反向代理时，才采用 X-Forwarded-For（默认 false，避免伪造 IP 绕过登录锁定）
+	if ws.config != nil && ws.config.TrustProxy {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			return xff
+		}
 	}
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -273,7 +276,7 @@ func (ws *WebServer) recordSuccessfulLogin(ip string) {
 
 // 清理过期session
 func (ws *WebServer) cleanupSessions() {
-	ticker := time.NewTicker(1 * time.Hour)
+	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
 	for range ticker.C {
@@ -310,7 +313,7 @@ func (ws *WebServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ip := getClientIP(r)
+	ip := ws.getClientIP(r)
 
 	// 检查IP是否被锁定
 	if ws.isIPLocked(ip) {
@@ -326,6 +329,8 @@ func (ws *WebServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Password string `json:"password"`
 	}
+	// 限制请求体大小（默认 1MB）：防止超大 body 触发连接重置而非规范 413
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid request", http.StatusBadRequest)
 		return

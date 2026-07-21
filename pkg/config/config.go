@@ -16,7 +16,8 @@ type ServerConfig struct {
 	WebEnable   bool   `yaml:"web_enable"`
 	WebAddr     string `yaml:"web_addr"`
 	WebPort     int    `yaml:"web_port"`
-	WebPassword string `yaml:"web_password"`
+	WebPassword   string `yaml:"web_password"`
+	WebTrustProxy bool   `yaml:"web_trust_proxy"` // 仅当部署在可信反向代理后才设 true，才用 X-Forwarded-For 取客户端IP
 }
 
 // ProxyConfig 单个代理配置

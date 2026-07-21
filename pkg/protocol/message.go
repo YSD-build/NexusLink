@@ -44,6 +44,8 @@ const (
 	TypeHeartbeat MessageType = 0x07
 	// TypeHeartbeatResp 心跳响应
 	TypeHeartbeatResp MessageType = 0x08
+	// TypeDataConn 数据通道标识帧（TCP 独立数据连接首帧）
+	TypeDataConn MessageType = 0x09
 
 	// maxValidType 最大合法类型值（用于校验）
 	maxValidType MessageType = 0x0F
@@ -82,16 +84,18 @@ type NewProxy struct {
 
 // NewProxyResp 新建代理响应
 type NewProxyResp struct {
-	Name       string `json:"name"`
-	Success    bool   `json:"success"`
-	Error      string `json:"error,omitempty"`
-	RemotePort int    `json:"remote_port,omitempty"`
+	Name        string `json:"name"`
+	Success     bool   `json:"success"`
+	Error       string `json:"error,omitempty"`
+	RemotePort  int    `json:"remote_port,omitempty"`
+	UDPDataPort int    `json:"udp_data_port,omitempty"` // UDP 独立数据通道端口（仅 type=udp 时下发）
 }
 
-// NewConn 新连接通知
+// NewConn 新连接通知（server 通知 client 有新 user 连接，并下发独立数据通道端口）
 type NewConn struct {
 	ProxyName string `json:"proxy_name"`
 	ConnID    string `json:"conn_id"`
+	DataPort  int    `json:"data_port"` // 独立 TCP 数据通道端口（server 分配，client 据此 dial）
 }
 
 // Message 消息封装
@@ -169,4 +173,53 @@ func ParseMessage[T any](msg *Message) (*T, error) {
 	var result T
 	err := json.Unmarshal(msg.Data, &result)
 	return &result, err
+}
+
+// ========== 数据通道封装 ==========
+
+// DataConnIdentify TCP 独立数据连接首帧：client 连上数据端口后发送，server 据此关联 connID。
+// 复用在 protocol 消息帧上（TCP 数据通道是流式连接，可用 WriteMessage/ReadMessage）。
+type DataConnIdentify struct {
+	ConnID string `json:"conn_id"`
+}
+
+// UDPEnvelope UDP 数据通道封装（紧凑二进制，因 UDP datagram 有边界，不复用 ReadMessage 的 io.ReadFull）。
+// 线格式: [1字节Kind][2字节sidLen大端][sid][payload]
+type UDPEnvelope struct {
+	Kind      byte   `json:"k"`            // 0x01=reg 握手, 0x02=data, 0x03=bye
+	SessionID string `json:"sid"`         // server 分配的 sessionID
+	Data      []byte `json:"d,omitempty"` // 用户原始 UDP 负载
+}
+
+// UDPMaxPayload 单包负载上限（签名后整体需 ≤ 65507）
+const UDPMaxPayload = 65400
+
+// MarshalEnvelope 序列化 UDPEnvelope 为紧凑二进制
+func MarshalEnvelope(e UDPEnvelope) []byte {
+	sid := []byte(e.SessionID)
+	buf := make([]byte, 0, 1+2+len(sid)+len(e.Data))
+	buf = append(buf, e.Kind)
+	var l [2]byte
+	binary.BigEndian.PutUint16(l[:], uint16(len(sid)))
+	buf = append(buf, l[:]...)
+	buf = append(buf, sid...)
+	buf = append(buf, e.Data...)
+	return buf
+}
+
+// UnmarshalEnvelope 解析紧凑二进制，失败返回 (zero, false)
+func UnmarshalEnvelope(b []byte) (UDPEnvelope, bool) {
+	if len(b) < 3 {
+		return UDPEnvelope{}, false
+	}
+	kind := b[0]
+	sidLen := int(binary.BigEndian.Uint16(b[1:3]))
+	if len(b) < 3+sidLen {
+		return UDPEnvelope{}, false
+	}
+	return UDPEnvelope{
+		Kind:      kind,
+		SessionID: string(b[3 : 3+sidLen]),
+		Data:      b[3+sidLen:],
+	}, true
 }
