@@ -1,0 +1,7 @@
+bind_addr: 127.0.0.1
+bind_port: 7000
+token: test_token_123
+web_enable: true
+web_addr: 127.0.0.1
+web_port: 7001
+web_password: admin123

@@ -41,6 +41,7 @@ type Proxy struct {
 	UDPConn    *net.UDPConn
 	ClientConn net.Conn
 	Active     bool
+	Owner      string // 所属客户端 ID，断开时只清理本客户端代理（多客户端隔离）
 
 	// TCP 独立数据通道（与控制通道解耦）
 	DataListener net.Listener
@@ -61,14 +62,14 @@ type Proxy struct {
 
 // Server 服务端
 type Server struct {
-	cfg        *config.ServerConfig
-	auth       *auth.Auth
-	proxies    map[string]*Proxy
-	clientConn net.Conn
-	webServer  *web.WebServer
-	connGuard  *security.ConnGuard // 第一防：连接守卫
-	mu         sync.RWMutex
-	startTime  time.Time
+	cfg       *config.ServerConfig
+	auth      *auth.Auth
+	proxies   map[string]*Proxy
+	clients   map[string]net.Conn // 多客户端支持：clientID -> 控制连接
+	webServer *web.WebServer
+	connGuard *security.ConnGuard // 第一防：连接守卫
+	mu        sync.RWMutex
+	startTime time.Time
 }
 
 // GetProxies 获取代理列表（实现ProxyManager接口）
@@ -104,9 +105,9 @@ func (s *Server) GetStatus() web.StatusInfo {
 	}
 
 	clientCount := 0
-	if s.clientConn != nil {
-		clientCount = 1
-	}
+	s.mu.RLock()
+	clientCount = len(s.clients)
+	s.mu.RUnlock()
 
 	uptime := time.Since(s.startTime)
 	uptimeStr := fmt.Sprintf("%d天%d小时%d分",
@@ -169,6 +170,7 @@ func main() {
 		cfg:       cfg,
 		auth:      auth.NewAuth(cfg.Token),
 		proxies:   make(map[string]*Proxy),
+		clients:   make(map[string]net.Conn),
 		connGuard: security.NewConnGuard(), // 初始化连接守卫
 		startTime: time.Now(),
 	}
@@ -263,16 +265,18 @@ func (s *Server) handleClient(conn net.Conn) {
 	protocol.WriteMessage(conn, protocol.TypeLoginResp, protocol.LoginResp{Success: true})
 	s.addLog(fmt.Sprintf("[%s] 客户端认证成功", remoteAddr))
 
+	// 多客户端：每个连接分配独立 ID，代理按 Owner 归属，断开时只清理自己的代理
+	clientID := fmt.Sprintf("%s-%d", remoteAddr, time.Now().UnixNano())
 	s.mu.Lock()
-	s.clientConn = conn
+	s.clients[clientID] = conn
 	s.mu.Unlock()
 
 	// 处理后续消息
-	s.handleControlMessages(conn)
+	s.handleControlMessages(conn, clientID)
 }
 
 // handleControlMessages 处理控制消息
-func (s *Server) handleControlMessages(conn net.Conn) {
+func (s *Server) handleControlMessages(conn net.Conn, clientID string) {
 	for {
 		msg, err := protocol.ReadMessage(conn)
 		if err != nil {
@@ -284,17 +288,20 @@ func (s *Server) handleControlMessages(conn net.Conn) {
 
 		switch msg.Type {
 		case protocol.TypeNewProxy:
-			s.handleNewProxy(conn, msg)
+			s.handleNewProxy(conn, msg, clientID)
 		case protocol.TypeHeartbeat:
 			protocol.WriteMessage(conn, protocol.TypeHeartbeatResp, struct{}{})
 		}
 	}
 
-	// 清理资源
+	// 清理资源：仅清理本客户端拥有的代理，互不干扰（多客户端隔离）
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
 	for name, proxy := range s.proxies {
+		if proxy.Owner != clientID {
+			continue
+		}
 		if proxy.Listener != nil {
 			proxy.Listener.Close()
 		}
@@ -314,19 +321,19 @@ func (s *Server) handleControlMessages(conn net.Conn) {
 		s.addLog(fmt.Sprintf("代理 [%s] 已关闭", name))
 	}
 
-	s.clientConn = nil
-	s.addLog("客户端断开连接")
+	delete(s.clients, clientID)
+	s.addLog(fmt.Sprintf("客户端 [%s] 断开连接", clientID))
 }
 
 // handleNewProxy 处理新建代理请求
-func (s *Server) handleNewProxy(conn net.Conn, msg *protocol.Message) {
+func (s *Server) handleNewProxy(conn net.Conn, msg *protocol.Message, clientID string) {
 	newProxy, err := protocol.ParseMessage[protocol.NewProxy](msg)
 	if err != nil {
 		s.addLog(fmt.Sprintf("解析新代理失败: %v", err))
 		return
 	}
 
-	s.addLog(fmt.Sprintf("创建代理 [%s] 类型=%s 远程端口=%d", newProxy.Name, newProxy.Type, newProxy.RemotePort))
+	s.addLog(fmt.Sprintf("创建代理 [%s] 类型=%s 远程端口=%d 属主=%s", newProxy.Name, newProxy.Type, newProxy.RemotePort, clientID))
 
 	resp := protocol.NewProxyResp{
 		Name:    newProxy.Name,
@@ -348,6 +355,7 @@ func (s *Server) handleNewProxy(conn net.Conn, msg *protocol.Message) {
 		RemotePort: newProxy.RemotePort,
 		ClientConn: conn,
 		Active:     true,
+		Owner:      clientID,
 	}
 
 	switch newProxy.Type {

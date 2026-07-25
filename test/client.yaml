@@ -1,0 +1,14 @@
+server_ip: 127.0.0.1
+server_port: 7000
+token: test_token_123
+proxies:
+  echo:
+    type: tcp
+    port: 25565
+    localaddr: 127.0.0.1
+    localport: 9000
+  echo_udp:
+    type: udp
+    port: 25566
+    localaddr: 127.0.0.1
+    localport: 9001
