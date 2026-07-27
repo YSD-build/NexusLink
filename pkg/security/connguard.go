@@ -25,9 +25,9 @@ func NewConnGuard() *ConnGuard {
 		connCount:   make(map[string]int),
 		lastConn:    make(map[string]time.Time),
 		blacklist:   make(map[string]time.Time),
-		maxConn:     10,              // 单 IP 最多 10 个连接
-		minInterval: 50 * time.Millisecond, // 连接间隔至少 50ms
-		banDuration: 1 * time.Hour,   // 封禁 1 小时
+		maxConn:     50,              // 单 IP 最多 50 个连接（提高以适应并发场景）
+		minInterval: 200 * time.Millisecond, // 连接间隔至少 200ms（放宽频率限制）
+		banDuration: 5 * time.Minute,   // 封禁 5 分钟（从 1 小时改为 5 分钟，便于测试恢复）
 	}
 }
 

@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 
 	"gopkg.in/yaml.v3"
@@ -16,7 +17,7 @@ type ServerConfig struct {
 	WebEnable   bool   `yaml:"web_enable"`
 	WebAddr     string `yaml:"web_addr"`
 	WebPort     int    `yaml:"web_port"`
-	WebPassword   string `yaml:"web_password"`
+	WebPassword string `yaml:"web_password"`
 	WebTrustProxy bool   `yaml:"web_trust_proxy"` // 仅当部署在可信反向代理后才设 true，才用 X-Forwarded-For 取客户端IP
 }
 
@@ -48,6 +49,15 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 		return nil, fmt.Errorf("parse config: %w", err)
 	}
 
+	// 从环境变量覆盖 WebPassword（如未显式设置）
+	if cfg.WebPassword == "" {
+		if envPwd := os.Getenv("NEXUSLINK_WEB_PASSWORD"); envPwd != "" {
+			cfg.WebPassword = envPwd
+		} else {
+			cfg.WebPassword = "admin123"
+		}
+	}
+
 	// 设置默认值
 	if cfg.BindAddr == "" {
 		cfg.BindAddr = "0.0.0.0"
@@ -62,14 +72,11 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 	if cfg.WebPort == 0 {
 		cfg.WebPort = 7001
 	}
-	if cfg.WebPassword == "" {
-		cfg.WebPassword = "admin123"
-	}
 
 	return &cfg, nil
 }
 
-// LoadClientConfig 加载客户端配置
+// LoadClientConfig 加载并校验客户端配置
 func LoadClientConfig(path string) (*ClientConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -87,6 +94,23 @@ func LoadClientConfig(path string) (*ClientConfig, error) {
 	}
 	if cfg.ServerPort == 0 {
 		cfg.ServerPort = 7000
+	}
+
+	// 校验：server_ip 不能是保留地址（除非是本地测试）
+	if cfg.ServerIP == "127.0.0.1" || cfg.ServerIP == "::1" {
+		// 本地测试允许，不报错
+	} else {
+		// 尝试解析 server_ip（防止配置错误的域名/地址）
+		if _, err := net.ResolveTCPAddr("tcp", cfg.ServerIP+":"+fmt.Sprint(cfg.ServerPort)); err != nil {
+			return nil, fmt.Errorf("invalid server_ip '%s': %w", cfg.ServerIP, err)
+		}
+	}
+
+	// 校验：proxy 端口不能与 server_port 重复
+	for name, p := range cfg.Proxies {
+		if p.Port == cfg.ServerPort {
+			return nil, fmt.Errorf("proxy '%s' port (%d) conflicts with server port (%d)", name, p.Port, cfg.ServerPort)
+		}
 	}
 
 	return &cfg, nil

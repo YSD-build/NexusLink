@@ -1,0 +1,137 @@
++ set -u
+++ dirname test/run_attack.sh
++ cd test/..
+++ pwd
++ ROOT=/workspace
++ BIN=/workspace/bin
++ TEST=/workspace/test
++ ATTACK_DUR=60
++ echo '[run] === 清理旧进程 ==='
+[run] === 清理旧进程 ===
++ pkill -f bin/nexuslink-server
++ true
++ pkill -f bin/nexuslink-client
++ true
++ pkill -f echo_server.py
++ true
++ pkill -f echo_udp_server.py
++ true
++ pkill -f attack_test.py
++ true
++ sleep 1
++ echo '[run] === 重新编译 server + client ==='
+[run] === 重新编译 server + client ===
++ cd /workspace
++ go build -o /workspace/bin/nexuslink-server ./cmd/server/
++ go build -o /workspace/bin/nexuslink-client ./cmd/client/
++ echo '[run] 编译完成'
+[run] 编译完成
++ echo '[run] === 启动回显服务 (TCP:9000 / UDP:9001) ==='
+[run] === 启动回显服务 (TCP:9000 / UDP:9001) ===
++ echo 860
++ echo 861
++ sleep 1
++ python3 /workspace/test/echo_server.py
++ python3 /workspace/test/echo_udp_server.py
++ echo '[run] === 启动服务端 (127.0.0.1:7000, web:7001) ==='
+[run] === 启动服务端 (127.0.0.1:7000, web:7001) ===
++ echo 863
++ /workspace/bin/nexuslink-server -c /workspace/test/server.yaml
++ sleep 2
++ echo '[run] === 启动客户端 (注册 echo/echo_udp 隧道) ==='
+[run] === 启动客户端 (注册 echo/echo_udp 隧道) ===
++ echo 869
++ echo '[run] === 等待隧道端口就绪 (25565 TCP / 25566 UDP 回显验证) ==='
+[run] === 等待隧道端口就绪 (25565 TCP / 25566 UDP 回显验证) ===
++ python3 - 60
++ /workspace/bin/nexuslink-client -c /workspace/test/client.yaml
+[run] 隧道就绪 (TCP+UDP echo 验证通过, 第1次轮询)
++ '[' 0 -ne 0 ']'
++ echo '[run] === 发动全攻击面并实时监测 (attack_dur=60s) ==='
+[run] === 发动全攻击面并实时监测 (attack_dur=60s) ===
++ python3 /workspace/test/attack_test.py 60
++ tee /workspace/test/attack_out.log
+=== 严格攻击韧性测试 (baseline=5s attack=60s cooldown=5s) ===
+[BASELINE] t=1785180916s | TCP p50=0.8 p99=13.9ms ok=137 | UDP p50=0.4 p99=9.8ms ok=97 | corrupt=0 | atk(bad=0 mal=0 over=0 btype=0 garbage=0 udp=0 webBrute=0 webLoad=0)
+[BASELINE] t=1785180918s | TCP p50=0.9 p99=7.5ms ok=269 | UDP p50=0.4 p99=1.9ms ok=194 | corrupt=0 | atk(bad=0 mal=0 over=0 btype=0 garbage=0 udp=0 webBrute=0 webLoad=0)
+--- HMAC 篡改注入（基线）---
+  篡改包: leaked=False rejected=True 
+--- 发动全攻击面 ---
+[ATTACK] t=1785180920s | TCP p50=0.7 p99=10.2ms ok=401 | UDP p50=0.4 p99=40.2ms ok=269 | corrupt=0 | atk(bad=6142 mal=0 over=0 btype=0 garbage=0 udp=0 webBrute=0 webLoad=0)
+[ATTACK] t=1785180922s | TCP p50=19.2 p99=201.0ms ok=502 | UDP p50=13.1 p99=93.4ms ok=300 | corrupt=0 | atk(bad=19038 mal=368 over=0 btype=0 garbage=0 udp=0 webBrute=0 webLoad=0)
+[ATTACK] t=1785180924s | TCP p50=28.3 p99=425.1ms ok=552 | UDP p50=45.5 p99=418.8ms ok=315 | corrupt=0 | atk(bad=34952 mal=5915 over=0 btype=0 garbage=0 udp=0 webBrute=0 webLoad=0)
+[ATTACK] t=1785180926s | TCP p50=30.6 p99=884.6ms ok=631 | UDP p50=18.4 p99=228.9ms ok=331 | corrupt=0 | atk(bad=54080 mal=17944 over=0 btype=0 garbage=0 udp=0 webBrute=0 webLoad=0)
+[ATTACK] t=1785180928s | TCP p50=31.3 p99=117.7ms ok=717 | UDP p50=25.3 p99=126.4ms ok=354 | corrupt=0 | atk(bad=61643 mal=25136 over=240 btype=0 garbage=0 udp=0 webBrute=0 webLoad=0)
+[ATTACK] t=1785180930s | TCP p50=38.8 p99=210.9ms ok=761 | UDP p50=42.3 p99=144.3ms ok=368 | corrupt=0 | atk(bad=66163 mal=29964 over=1475 btype=0 garbage=0 udp=0 webBrute=0 webLoad=0)
+[ATTACK] t=1785180932s | TCP p50=45.0 p99=281.6ms ok=843 | UDP p50=31.9 p99=195.3ms ok=382 | corrupt=0 | atk(bad=71959 mal=36734 over=4776 btype=0 garbage=0 udp=0 webBrute=0 webLoad=0)
+[ATTACK] t=1785180934s | TCP p50=61.7 p99=345.3ms ok=899 | UDP p50=63.0 p99=363.7ms ok=392 | corrupt=0 | atk(bad=78778 mal=45137 over=9540 btype=0 garbage=0 udp=0 webBrute=0 webLoad=0)
+[ATTACK] t=1785180936s | TCP p50=49.6 p99=172.8ms ok=962 | UDP p50=65.2 p99=281.3ms ok=403 | corrupt=0 | atk(bad=83917 mal=50916 over=14855 btype=4 garbage=0 udp=0 webBrute=0 webLoad=0)
+[ATTACK] t=1785180938s | TCP p50=78.8 p99=264.7ms ok=1020 | UDP p50=55.1 p99=327.2ms ok=414 | corrupt=0 | atk(bad=88358 mal=55410 over=19597 btype=511 garbage=0 udp=0 webBrute=0 webLoad=0)
+[ATTACK] t=1785180940s | TCP p50=53.1 p99=287.6ms ok=1090 | UDP p50=47.2 p99=268.2ms ok=427 | corrupt=0 | atk(bad=92838 mal=59718 over=24421 btype=2108 garbage=0 udp=0 webBrute=0 webLoad=0)
+[ATTACK] t=1785180942s | TCP p50=46.8 p99=201.0ms ok=1168 | UDP p50=56.3 p99=169.3ms ok=443 | corrupt=0 | atk(bad=97584 mal=64722 over=29389 btype=4544 garbage=0 udp=0 webBrute=0 webLoad=0)
+[ATTACK] t=1785180944s | TCP p50=57.7 p99=216.2ms ok=1243 | UDP p50=74.5 p99=133.6ms ok=454 | corrupt=0 | atk(bad=101923 mal=68997 over=33753 btype=7429 garbage=0 udp=0 webBrute=0 webLoad=0)
+[ATTACK] t=1785180946s | TCP p50=52.8 p99=312.8ms ok=1301 | UDP p50=66.3 p99=296.7ms ok=463 | corrupt=0 | atk(bad=105620 mal=72758 over=37743 btype=10501 garbage=0 udp=0 webBrute=0 webLoad=0)
+[ATTACK] t=1785180949s | TCP p50=88.8 p99=372.6ms ok=1356 | UDP p50=105.7 p99=532.9ms ok=472 | corrupt=0 | atk(bad=109457 mal=76579 over=41225 btype=14265 garbage=20 udp=0 webBrute=0 webLoad=0)
+[ATTACK] t=1785180951s | TCP p50=80.1 p99=454.1ms ok=1403 | UDP p50=130.6 p99=325.1ms ok=479 | corrupt=0 | atk(bad=112556 mal=79614 over=44477 btype=17777 garbage=126 udp=0 webBrute=0 webLoad=0)
+[ATTACK] t=1785180953s | TCP p50=71.3 p99=571.7ms ok=1443 | UDP p50=69.0 p99=630.4ms ok=486 | corrupt=0 | atk(bad=115422 mal=82600 over=47592 btype=20891 garbage=253 udp=0 webBrute=0 webLoad=0)
+[ATTACK] t=1785180955s | TCP p50=86.2 p99=421.3ms ok=1484 | UDP p50=30.4 p99=412.3ms ok=491 | corrupt=0 | atk(bad=118009 mal=84993 over=50236 btype=23813 garbage=310 udp=0 webBrute=0 webLoad=0)
+[ATTACK] t=1785180957s | TCP p50=99.3 p99=386.0ms ok=1539 | UDP p50=190.2 p99=237.2ms ok=497 | corrupt=0 | atk(bad=120777 mal=87816 over=52806 btype=26604 garbage=392 udp=831 webBrute=0 webLoad=0)
+[ATTACK] t=1785180959s | TCP p50=79.6 p99=714.1ms ok=1583 | UDP p50=155.0 p99=379.3ms ok=504 | corrupt=0 | atk(bad=122668 mal=89612 over=54929 btype=28686 garbage=499 udp=2798 webBrute=0 webLoad=0)
+[ATTACK] t=1785180961s | TCP p50=180.3 p99=502.0ms ok=1612 | UDP p50=164.5 p99=295.4ms ok=508 | corrupt=0 | atk(bad=124367 mal=91421 over=56486 btype=30218 garbage=575 udp=4834 webBrute=0 webLoad=0)
+[ATTACK] t=1785180963s | TCP p50=112.8 p99=658.6ms ok=1639 | UDP p50=90.8 p99=305.0ms ok=519 | corrupt=0 | atk(bad=125848 mal=92965 over=57987 btype=31819 garbage=606 udp=6879 webBrute=0 webLoad=0)
+[ATTACK] t=1785180965s | TCP p50=156.2 p99=728.1ms ok=1671 | UDP p50=89.9 p99=342.4ms ok=523 | corrupt=0 | atk(bad=127312 mal=94382 over=59441 btype=33269 garbage=641 udp=8863 webBrute=0 webLoad=0)
+[ATTACK] t=1785180967s | TCP p50=126.2 p99=584.2ms ok=1703 | UDP p50=438.5 p99=624.9ms ok=526 | corrupt=0 | atk(bad=128831 mal=95898 over=60836 btype=34818 garbage=700 udp=11127 webBrute=0 webLoad=0)
+[ATTACK] t=1785180970s | TCP p50=206.4 p99=501.7ms ok=1739 | UDP p50=95.7 p99=499.2ms ok=532 | corrupt=0 | atk(bad=130631 mal=97757 over=62734 btype=36514 garbage=755 udp=13895 webBrute=0 webLoad=0)
+[ATTACK] t=1785180972s | TCP p50=87.2 p99=871.3ms ok=1775 | UDP p50=71.0 p99=1080.2ms ok=536 | corrupt=0 | atk(bad=132392 mal=99475 over=64492 btype=38222 garbage=803 udp=16484 webBrute=0 webLoad=0)
+[ATTACK] t=1785180974s | TCP p50=219.3 p99=886.1ms ok=1801 | UDP p50=70.5 p99=563.1ms ok=543 | corrupt=0 | atk(bad=134063 mal=101260 over=66211 btype=39966 garbage=882 udp=18752 webBrute=0 webLoad=0)
+[ATTACK] t=1785180976s | TCP p50=118.7 p99=583.0ms ok=1823 | UDP p50=155.3 p99=389.4ms ok=548 | corrupt=0 | atk(bad=135586 mal=102788 over=67625 btype=41391 garbage=924 udp=20728 webBrute=0 webLoad=0)
+[ATTACK] t=1785180978s | TCP p50=142.9 p99=929.3ms ok=1849 | UDP p50=21.8 p99=436.6ms ok=555 | corrupt=0 | atk(bad=137260 mal=104805 over=69216 btype=43186 garbage=991 udp=22861 webBrute=0 webLoad=0)
+[COOLDOWN] t=1785180980s | TCP p50=187.4 p99=369.8ms ok=1873 | UDP p50=216.0 p99=1095.6ms ok=558 | corrupt=0 | atk(bad=138684 mal=106616 over=70745 btype=44691 garbage=1036 udp=25208 webBrute=0 webLoad=0)
+[COOLDOWN] t=1785180983s | TCP p50=74.9 p99=1302.9ms ok=1913 | UDP p50=37.4 p99=386.3ms ok=563 | corrupt=0 | atk(bad=140351 mal=108322 over=72366 btype=46323 garbage=1062 udp=27421 webBrute=0 webLoad=0)
+[COOLDOWN] t=1785180985s | TCP p50=253.1 p99=849.8ms ok=1934 | UDP p50=57.0 p99=965.8ms ok=570 | corrupt=0 | atk(bad=141753 mal=109578 over=73819 btype=47723 garbage=1114 udp=29429 webBrute=0 webLoad=0)
+[COOLDOWN] t=1785180987s | TCP p50=230.2 p99=1378.5ms ok=1957 | UDP p50=509.6 p99=509.6ms ok=572 | corrupt=0 | atk(bad=142905 mal=110711 over=74989 btype=48843 garbage=1205 udp=30699 webBrute=20 webLoad=0)
+[COOLDOWN] t=1785180989s | TCP p50=157.2 p99=703.4ms ok=1989 | UDP p50=32.3 p99=437.0ms ok=579 | corrupt=0 | atk(bad=144312 mal=112041 over=76409 btype=50415 garbage=1254 udp=32318 webBrute=79 webLoad=0)
+[COOLDOWN] t=1785180991s | TCP p50=180.1 p99=804.9ms ok=2008 | UDP p50=315.9 p99=333.2ms ok=583 | corrupt=0 | atk(bad=145608 mal=113305 over=77580 btype=51645 garbage=1335 udp=33864 webBrute=150 webLoad=0)
+[COOLDOWN] t=1785180993s | TCP p50=88.6 p99=1872.1ms ok=2029 | UDP p50=93.9 p99=449.9ms ok=587 | corrupt=0 | atk(bad=147071 mal=114848 over=79087 btype=53347 garbage=1398 udp=35854 webBrute=262 webLoad=0)
+[COOLDOWN] t=1785180996s | TCP p50=311.0 p99=1156.9ms ok=2048 | UDP p50=451.0 p99=509.5ms ok=591 | corrupt=0 | atk(bad=148419 mal=116310 over=80489 btype=54693 garbage=1458 udp=37657 webBrute=431 webLoad=0)
+[COOLDOWN] t=1785180998s | TCP p50=104.6 p99=574.9ms ok=2069 | UDP p50=529.0 p99=529.0ms ok=593 | corrupt=0 | atk(bad=149557 mal=117484 over=81713 btype=55886 garbage=1543 udp=39354 webBrute=565 webLoad=0)
+[COOLDOWN] t=1785181000s | TCP p50=198.5 p99=771.9ms ok=2091 | UDP p50=197.4 p99=633.6ms ok=596 | corrupt=0 | atk(bad=150715 mal=118472 over=82823 btype=57040 garbage=1571 udp=40624 webBrute=703 webLoad=0)
+[COOLDOWN] t=1785181002s | TCP p50=156.2 p99=608.9ms ok=2119 | UDP p50=245.2 p99=824.1ms ok=600 | corrupt=0 | atk(bad=151896 mal=119700 over=84229 btype=58403 garbage=1625 udp=42463 webBrute=926 webLoad=0)
+[COOLDOWN] t=1785181004s | TCP p50=278.3 p99=1238.7ms ok=2137 | UDP p50=0.0 p99=0.0ms ok=600 | corrupt=0 | atk(bad=153076 mal=121034 over=85490 btype=59732 garbage=1671 udp=44071 webBrute=1136 webLoad=5)
+[COOLDOWN] t=1785181006s | TCP p50=181.2 p99=940.4ms ok=2159 | UDP p50=201.0 p99=1860.9ms ok=605 | corrupt=0 | atk(bad=154316 mal=122543 over=86925 btype=61305 garbage=1758 udp=45694 webBrute=1359 webLoad=46)
+[COOLDOWN] t=1785181008s | TCP p50=185.8 p99=864.5ms ok=2173 | UDP p50=122.6 p99=617.8ms ok=608 | corrupt=0 | atk(bad=155783 mal=124246 over=88478 btype=62520 garbage=1809 udp=47299 webBrute=1554 webLoad=113)
+[COOLDOWN] t=1785181011s | TCP p50=143.3 p99=1832.5ms ok=2201 | UDP p50=108.6 p99=712.2ms ok=613 | corrupt=0 | atk(bad=157383 mal=125948 over=90118 btype=64315 garbage=1858 udp=49546 webBrute=1826 webLoad=232)
+[COOLDOWN] t=1785181013s | TCP p50=345.6 p99=1216.2ms ok=2216 | UDP p50=304.0 p99=530.1ms ok=617 | corrupt=0 | atk(bad=158620 mal=127097 over=91440 btype=65541 garbage=1895 udp=51003 webBrute=2018 webLoad=369)
+[COOLDOWN] t=1785181015s | TCP p50=251.5 p99=783.6ms ok=2235 | UDP p50=406.0 p99=406.0ms ok=619 | corrupt=0 | atk(bad=159858 mal=128151 over=92573 btype=66824 garbage=1948 udp=52392 webBrute=2230 webLoad=518)
+[COOLDOWN] t=1785181018s | TCP p50=198.9 p99=2022.1ms ok=2263 | UDP p50=575.4 p99=885.2ms ok=623 | corrupt=0 | atk(bad=161261 mal=129574 over=93945 btype=68110 garbage=1993 udp=54165 webBrute=2471 webLoad=727)
+[COOLDOWN] t=1785181020s | TCP p50=222.6 p99=1057.4ms ok=2276 | UDP p50=0.0 p99=0.0ms ok=623 | corrupt=0 | atk(bad=162530 mal=131202 over=95291 btype=69452 garbage=2074 udp=55288 webBrute=2625 webLoad=869)
+[COOLDOWN] t=1785181022s | TCP p50=146.3 p99=1591.2ms ok=2302 | UDP p50=1066.2 p99=1066.2ms ok=625 | corrupt=0 | atk(bad=163611 mal=132414 over=96528 btype=70693 garbage=2182 udp=56693 webBrute=2798 webLoad=1089)
+[COOLDOWN] t=1785181025s | TCP p50=251.6 p99=994.9ms ok=2326 | UDP p50=596.9 p99=897.5ms ok=629 | corrupt=0 | atk(bad=164927 mal=133743 over=97882 btype=72011 garbage=2227 udp=58265 webBrute=3012 webLoad=1370)
+[COOLDOWN] t=1785181028s | TCP p50=266.1 p99=966.7ms ok=2358 | UDP p50=73.5 p99=316.8ms ok=635 | corrupt=0 | atk(bad=166369 mal=135642 over=99458 btype=73808 garbage=2260 udp=60170 webBrute=3278 webLoad=1791)
+[COOLDOWN] t=1785181030s | TCP p50=228.0 p99=743.3ms ok=2375 | UDP p50=302.1 p99=317.2ms ok=639 | corrupt=0 | atk(bad=167441 mal=136796 over=100544 btype=74820 garbage=2290 udp=61357 webBrute=3453 webLoad=2138)
+[COOLDOWN] t=1785181032s | TCP p50=264.9 p99=886.6ms ok=2401 | UDP p50=136.8 p99=296.5ms ok=643 | corrupt=0 | atk(bad=168980 mal=138414 over=102060 btype=76376 garbage=2333 udp=63234 webBrute=3719 webLoad=2686)
+[COOLDOWN] t=1785181035s | TCP p50=302.7 p99=1249.3ms ok=2418 | UDP p50=279.6 p99=574.7ms ok=647 | corrupt=0 | atk(bad=170300 mal=139609 over=103312 btype=77834 garbage=2369 udp=64552 webBrute=3930 webLoad=3120)
+[COOLDOWN] t=1785181037s | TCP p50=118.1 p99=1104.7ms ok=2434 | UDP p50=1109.6 p99=1109.6ms ok=648 | corrupt=0 | atk(bad=171319 mal=140659 over=104432 btype=78923 garbage=2400 udp=65911 webBrute=4117 webLoad=3567)
+[COOLDOWN] t=1785181039s | TCP p50=252.0 p99=523.4ms ok=2448 | UDP p50=640.5 p99=640.5ms ok=649 | corrupt=0 | atk(bad=172247 mal=141721 over=105438 btype=80075 garbage=2413 udp=67143 webBrute=4294 webLoad=3986)
+[COOLDOWN] t=1785181041s | TCP p50=100.3 p99=893.4ms ok=2465 | UDP p50=1639.3 p99=1639.3ms ok=651 | corrupt=0 | atk(bad=173088 mal=142649 over=106445 btype=81080 garbage=2438 udp=68380 webBrute=4462 webLoad=4372)
+[COOLDOWN] t=1785181043s | TCP p50=253.3 p99=1114.7ms ok=2481 | UDP p50=781.0 p99=1104.1ms ok=654 | corrupt=0 | atk(bad=174123 mal=143613 over=107319 btype=81954 garbage=2458 udp=69639 webBrute=4616 webLoad=4758)
+[COOLDOWN] t=1785181045s | TCP p50=155.0 p99=908.1ms ok=2496 | UDP p50=331.0 p99=434.3ms ok=658 | corrupt=0 | atk(bad=175244 mal=144658 over=108195 btype=82867 garbage=2548 udp=70700 webBrute=4747 webLoad=5144)
+[COOLDOWN] t=1785181047s | TCP p50=527.5 p99=2079.1ms ok=2504 | UDP p50=1732.9 p99=1732.9ms ok=659 | corrupt=0 | atk(bad=175944 mal=145319 over=108881 btype=83543 garbage=2575 udp=71575 webBrute=4862 webLoad=5435)
+[COOLDOWN] t=1785181050s | TCP p50=211.7 p99=1912.4ms ok=2521 | UDP p50=275.4 p99=275.4ms ok=661 | corrupt=0 | atk(bad=176749 mal=146227 over=109803 btype=84433 garbage=2608 udp=72725 webBrute=5012 webLoad=5827)
+[COOLDOWN] t=1785181052s | TCP p50=279.3 p99=1275.1ms ok=2537 | UDP p50=490.6 p99=720.7ms ok=664 | corrupt=0 | atk(bad=177577 mal=147164 over=110659 btype=85373 garbage=2649 udp=73867 webBrute=5155 webLoad=6191)
+[COOLDOWN] t=1785181054s | TCP p50=300.0 p99=891.2ms ok=2556 | UDP p50=381.3 p99=564.8ms ok=668 | corrupt=0 | atk(bad=178487 mal=148090 over=111648 btype=86363 garbage=2696 udp=75175 webBrute=5311 webLoad=6634)
+[COOLDOWN] t=1785181056s | TCP p50=254.6 p99=1195.3ms ok=2573 | UDP p50=604.9 p99=604.9ms ok=670 | corrupt=0 | atk(bad=179360 mal=149072 over=112763 btype=87299 garbage=2721 udp=76299 webBrute=5482 webLoad=7096)
+[COOLDOWN] t=1785181058s | TCP p50=211.0 p99=1044.8ms ok=2586 | UDP p50=267.4 p99=724.3ms ok=674 | corrupt=0 | atk(bad=180282 mal=150132 over=113963 btype=88173 garbage=2747 udp=77421 webBrute=5636 webLoad=7526)
+[COOLDOWN] t=1785181060s | TCP p50=314.6 p99=1027.7ms ok=2604 | UDP p50=73.0 p99=641.9ms ok=677 | corrupt=0 | atk(bad=181228 mal=151279 over=114745 btype=89114 garbage=2779 udp=78510 webBrute=5780 webLoad=7936)
+[COOLDOWN] t=1785181063s | TCP p50=281.7 p99=1614.0ms ok=2624 | UDP p50=436.1 p99=521.9ms ok=681 | corrupt=0 | atk(bad=182634 mal=152363 over=115963 btype=90413 garbage=2824 udp=79869 webBrute=5943 webLoad=8437)
+[COOLDOWN] t=1785181065s | TCP p50=319.5 p99=777.6ms ok=2639 | UDP p50=577.8 p99=809.4ms ok=684 | corrupt=0 | atk(bad=183659 mal=153575 over=117007 btype=91478 garbage=2837 udp=81066 webBrute=6091 webLoad=8860)
+[COOLDOWN] t=1785181067s | TCP p50=227.5 p99=521.8ms ok=2656 | UDP p50=143.5 p99=143.5ms ok=685 | corrupt=0 | atk(bad=184464 mal=154653 over=117883 btype=92441 garbage=2876 udp=82225 webBrute=6230 webLoad=9278)
+[COOLDOWN] t=1785181069s | TCP p50=338.0 p99=716.1ms ok=2671 | UDP p50=329.9 p99=1884.7ms ok=688 | corrupt=0 | atk(bad=185455 mal=155519 over=118894 btype=93363 garbage=2911 udp=83461 webBrute=6416 webLoad=9732)
+[COOLDOWN] t=1785181071s | TCP p50=192.8 p99=1085.7ms ok=2685 | UDP p50=544.2 p99=549.0ms ok=691 | corrupt=0 | atk(bad=186215 mal=156230 over=119893 btype=94340 garbage=2946 udp=84394 webBrute=6546 webLoad=10080)
+[COOLDOWN] t=1785181073s | TCP p50=300.6 p99=1020.2ms ok=2698 | UDP p50=293.6 p99=293.6ms ok=692 | corrupt=0 | atk(bad=187079 mal=157207 over=120740 btype=95337 garbage=3013 udp=85267 webBrute=6690 webLoad=10478)
+[COOLDOWN] t=1785181075s | TCP p50=312.8 p99=1396.8ms ok=2715 | UDP p50=167.2 p99=447.8ms ok=697 | corrupt=0 | atk(bad=187947 mal=158462 over=121667 btype=96127 garbage=3065 udp=86374 webBrute=6825 webLoad=10904)
+[COOLDOWN] t=1785181077s | TCP p50=340.5 p99=1217.0ms ok=2734 | UDP p50=691.7 p99=691.7ms ok=699 | corrupt=0 | atk(bad=188860 mal=159627 over=123246 btype=97260 garbage=3111 udp=87684 webBrute=7020 webLoad=11395)
+[COOLDOWN] t=1785181080s | TCP p50=171.3 p99=1320.9ms ok=2757 | UDP p50=168.9 p99=341.4ms ok=702 | corrupt=0 | atk(bad=189946 mal=161235 over=124360 btype=98395 garbage=3162 udp=88766 webBrute=7193 webLoad=11881)
+[COOLDOWN] t=1785181082s | TCP p50=279.4 p99=1573.2ms ok=2775 | UDP p50=646.0 p99=646.0ms ok=704 | corrupt=0 | atk(bad=191199 mal=162315 over=125449 btype=99492 garbage=3197 udp=89942 webBrute=7349 webLoad=12358)
+[COOLDOWN] t=1785181084s | TCP p50=443.7 p99=1019.2ms ok=2792 | UDP p50=116.8 p99=261.0ms ok=707 | corrupt=0 | atk(bad=192450 mal=163499 over=126698 btype=100738 garbage=3227 udp=91272 webBrute=7524 webLoad=12859)
+[COOLDOWN] t=1785181087s | TCP p50=251.9 p99=1094.9ms ok=2815 | UDP p50=342.5 p99=342.5ms ok=709 | corrupt=0 | atk(bad=193645 mal=164621 over=127745 btype=101882 garbage=3277 udp=92686 webBrute=7720 webLoad=13415)

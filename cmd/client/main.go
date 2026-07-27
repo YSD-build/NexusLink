@@ -21,7 +21,7 @@ import (
 	"nexuslink/pkg/protocol"
 )
 
-var Version = "dev"
+var Version = "v0.3.2"
 
 var (
 	configFile = flag.String("c", "client.yaml", "config file path")
@@ -86,13 +86,27 @@ func main() {
 		}
 		log.Println("Config fetched from API successfully")
 	} else {
-		// 方式二：从配置文件加载
-		cfg, err = config.LoadClientConfig(*configFile)
-		if err != nil {
-			log.Fatalf("Load config failed: %v", err)
-		}
+	// 方式二：从配置文件加载
+	cfg, err = config.LoadClientConfig(*configFile)
+	if err != nil {
+		log.Fatalf("Load config failed: %v", err)
+	}
 
-		// 如果指定了 -id，只保留对应 ID 的隧道
+	// 校验：测试 server_ip 连通性（可选，仅在非本地模式时严格检查）
+	if cfg.ServerIP != "127.0.0.1" && cfg.ServerIP != "::1" {
+		// 尝试连接服务器以验证可达性
+		addr := fmt.Sprintf("%s:%d", cfg.ServerIP, cfg.ServerPort)
+		conn, err := net.DialTimeout("tcp", addr, 3*time.Second)
+		if err != nil {
+			log.Printf("⚠️ 警告: 无法连接到服务器 %s (继续等待重试)", addr)
+			// 不退出，让 connect 函数自行处理重试
+		} else {
+			conn.Close()
+			log.Printf("✓ 服务器 %s 可达", addr)
+		}
+	}
+
+	// 如果指定了 -id，只保留对应 ID 的隧道
 		if *tunnelID != "" {
 			filtered := make(map[string]config.ProxyConfig)
 			// 支持两种格式：直接用 ID 作为 key，或者 tunnel_{ID} 作为 key
