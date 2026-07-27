@@ -24,9 +24,18 @@ BIN_DIR="$BASE_DIR/bin"
 CONFIG_DIR="/etc/nexuslink"
 SERVICE_NAME="nexuslink"
 
-# 检测可用工具
-HAS_WGET=$(command -v wget 2>/dev/null && echo true || false)
-HAS_CURL=$(command -v curl 2>/dev/null && echo true || false)
+# 检测可用工具（更健壮的检测方式）
+HAS_WGET=false
+HAS_CURL=false
+
+if command -v wget &> /dev/null; then
+    HAS_WGET=true
+fi
+if command -v curl &> /dev/null; then
+    HAS_CURL=true
+fi
+
+echo "可用工具: wget=${HAS_WGET}, curl=${HAS_CURL}"
 HAS_SYSTEMD=$(systemctl --version 2>/dev/null && echo true || false)
 HAS_OPENRC=$(rc-status 2>/dev/null && echo true || true)
 
