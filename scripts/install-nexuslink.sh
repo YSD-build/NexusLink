@@ -3,6 +3,11 @@
 # 支持 systemd/openrc, wget/curl
 # 用法: sudo ./install-nexuslink.sh [server|client|all] [token]
 
+# 注意：不要使用 <(wget ...) 进程替换方式，请使用以下方法之一：
+#   sudo bash install-nexuslink.sh              # 先下载脚本再执行
+#   curl -fsSL https://github.com/.../install-nexuslink.sh | sudo bash
+#   wget -O - https://github.com/.../install-nexuslink.sh | sudo bash
+
 set -e
 
 # 检测 root 权限
@@ -50,25 +55,45 @@ download_bin() {
     local url="${ASSET_BASE}${bin_name}"
     
     echo "下载: $url"
-    if [[ $HAS_WGET == true ]]; then
-        wget -q "$url" -o /tmp/nexuslink_download.log || curl -sL "$url" -o "$bin_name"
-    elif [[ $HAS_CURL == true ]]; then
-        curl -sL "$url" -o "$bin_name"
+    
+    # 尝试使用 wget 下载
+    if [[ "$HAS_WGET" == "true" ]]; then
+        if wget -q "$url" -o "$bin_name" --no-check-certificate; then
+            echo "✓ 使用 wget 下载成功"
+        else
+            echo "wget 下载失败，尝试 curl..."
+            rm -f "$bin_name" 2>/dev/null
+            if [[ "$HAS_CURL" == "true" ]] && curl -sL "$url" -o "$bin_name"; then
+                echo "✓ 使用 curl 下载成功"
+            else
+                echo "错误: 下载失败（wget/curl 均未成功）"
+                rm -f "$bin_name" 2>/dev/null
+                exit 1
+            fi
+        fi
+    elif [[ "$HAS_CURL" == "true" ]]; then
+        # 没有 wget，直接使用 curl
+        if curl -sL "$url" -o "$bin_name"; then
+            echo "✓ 使用 curl 下载成功"
+        else
+            echo "错误: curl 下载失败"
+            rm -f "$bin_name" 2>/dev/null
+            exit 1
+        fi
     else
         echo "错误: 未安装 wget 或 curl"
         exit 1
     fi
     
-    # 检查是否下载成功
+    # 检查下载的文件是否非空
     if [[ -f "$bin_name" && -s "$bin_name" ]]; then
         chmod +x "$bin_name"
-        echo "✓ 下载成功: $bin_name"
+        echo "✓ 下载完成: $bin_name ($(du -h "$bin_name" | cut -f1))"
     else
-        echo "错误: 下载失败"
-        rm -f /tmp/nexuslink_download.log 2>/dev/null
+        echo "错误: 下载的文件为空或不存在"
+        rm -f "$bin_name" 2>/dev/null
         exit 1
     fi
-    rm -f /tmp/nexuslink_download.log 2>/dev/null
 }
 
 # 安装目录
