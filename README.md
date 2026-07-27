@@ -1,9 +1,22 @@
 ### 🔧 Linux 一键安装
+
+**推荐方式（分步下载执行，最可靠）：**
+
 ```bash
-# 执行安装脚本（支持 systemd/openrc, wget/curl）
-sudo bash <(wget -q https://github.com/YSD-build/NexusLink/raw/main/scripts/install-nexuslink.sh -O -)
+# 1. 下载脚本
+curl -fsSL -o install-nexuslink.sh https://github.com/YSD-build/NexusLink/raw/main/scripts/install-nexuslink.sh
+
+# 2. 验证脚本（可选）
+sha256sum install-nexuslink.sh
+
+# 3. 执行安装（默认安装 server + client）
+sudo bash install-nexuslink.sh all
+
+# 或使用 curl 直接执行（管道方式）
+curl -fsSL https://github.com/YSD-build/NexusLink/raw/main/scripts/install-nexuslink.sh | sudo bash all
 ```
-脚本会自动检测架构、下载对应二进制、生成配置文件并创建系统服务。所有资产见下方 Release。
+
+脚本自动检测架构、下载对应二进制、生成配置文件并创建系统服务。所有资产见下方 Release。
 ---
 # NexusLink · 高性能带认证内网穿透
 > 类似 FRP，但**每个数据包都带 HMAC-SHA256 认证**（防篡改、防重放），纯 Go 静态编译、无运行时依赖。
