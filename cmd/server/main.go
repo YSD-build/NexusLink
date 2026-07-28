@@ -499,7 +499,7 @@ func (s *Server) handleTCPUserConnection(proxy *Proxy, userConn net.Conn) {
 	s.addLog(fmt.Sprintf("连接 %s 关闭", connID))
 }
 
-// forwardWithAuth 带认证的数据转发
+// forwardWithAuth 带认证的数据转发（使用帧格式,解决TCP分包导致的帧同步丢失）
 func (s *Server) forwardWithAuth(userConn, clientConn net.Conn, connID string) {
 	errChan := make(chan error, 2)
 	bufSize := 32 * 1024
@@ -510,7 +510,7 @@ func (s *Server) forwardWithAuth(userConn, clientConn net.Conn, connID string) {
 		for {
 			n, err := userConn.Read(buf)
 			if n > 0 {
-				signed := s.auth.Sign(buf[:n])
+				signed := s.auth.SignFramed(buf[:n])
 				_, writeErr := clientConn.Write(signed)
 				if writeErr != nil {
 					errChan <- writeErr
@@ -524,25 +524,17 @@ func (s *Server) forwardWithAuth(userConn, clientConn net.Conn, connID string) {
 		}
 	}()
 
-	// client -> user (验证)
+	// client -> user (验证) - 使用 ReadFramed 确保每次读取完整帧
 	go func() {
-		buf := make([]byte, bufSize+auth.HeaderSize)
 		for {
-			n, err := clientConn.Read(buf)
-			if n > 0 {
-				data, ok := s.auth.Verify(buf[:n])
-				if !ok {
-					errChan <- fmt.Errorf("invalid signature")
-					return
-				}
-				_, writeErr := userConn.Write(data)
-				if writeErr != nil {
-					errChan <- writeErr
-					return
-				}
-			}
+			data, err := s.auth.ReadFramed(clientConn)
 			if err != nil {
 				errChan <- err
+				return
+			}
+			_, writeErr := userConn.Write(data)
+			if writeErr != nil {
+				errChan <- writeErr
 				return
 			}
 		}

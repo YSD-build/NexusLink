@@ -434,7 +434,7 @@ func (c *Client) handleNewConn(msg *protocol.Message) {
 	go c.forwardWithAuth(localConn, dataConn, newConn.ConnID, proxy)
 }
 
-// forwardWithAuth 带认证的数据转发
+// forwardWithAuth 带认证的数据转发（使用帧格式,解决TCP分包导致的帧同步丢失）
 func (c *Client) forwardWithAuth(localConn, serverConn net.Conn, connID string, proxy *Proxy) {
 	defer localConn.Close()
 	defer serverConn.Close() // 数据通道连接关闭，触发对端 EOF -> 关闭用户连接
@@ -442,27 +442,19 @@ func (c *Client) forwardWithAuth(localConn, serverConn net.Conn, connID string, 
 	errChan := make(chan error, 2)
 	bufSize := 32 * 1024
 
-	// server -> local (验证) - 入站流量
+	// server -> local (验证) - 使用 ReadFramed 确保每次读取完整帧
 	go func() {
-		buf := make([]byte, bufSize+auth.HeaderSize)
 		for {
-			n, err := serverConn.Read(buf)
-			if n > 0 {
-				data, ok := c.auth.Verify(buf[:n])
-				if !ok {
-					errChan <- fmt.Errorf("invalid signature")
-					return
-				}
-				// 统计入站流量
-				atomic.AddInt64(&proxy.BytesIn, int64(len(data)))
-				_, writeErr := localConn.Write(data)
-				if writeErr != nil {
-					errChan <- writeErr
-					return
-				}
-			}
+			data, err := c.auth.ReadFramed(serverConn)
 			if err != nil {
 				errChan <- err
+				return
+			}
+			// 统计入站流量
+			atomic.AddInt64(&proxy.BytesIn, int64(len(data)))
+			_, writeErr := localConn.Write(data)
+			if writeErr != nil {
+				errChan <- writeErr
 				return
 			}
 		}
@@ -476,7 +468,7 @@ func (c *Client) forwardWithAuth(localConn, serverConn net.Conn, connID string, 
 			if n > 0 {
 				// 统计出站流量
 				atomic.AddInt64(&proxy.BytesOut, int64(n))
-				signed := c.auth.Sign(buf[:n])
+				signed := c.auth.SignFramed(buf[:n])
 				_, writeErr := serverConn.Write(signed)
 				if writeErr != nil {
 					errChan <- writeErr

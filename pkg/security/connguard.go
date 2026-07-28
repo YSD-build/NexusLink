@@ -33,8 +33,18 @@ func NewConnGuard() *ConnGuard {
 
 // Check 检查连接是否允许
 // 返回 true 表示允许，false 表示拒绝
+// 本地回环地址(127.0.0.1, ::1)跳过频率和连接数限制，避免压测/同机部署时误封
 func (g *ConnGuard) Check(conn net.Conn) bool {
 	ip := getIP(conn)
+
+	// 本地回环地址跳过限流（但仍记录连接数用于 Release 配对）
+	if isLoopback(ip) {
+		g.mu.Lock()
+		g.lastConn[ip] = time.Now()
+		g.connCount[ip]++
+		g.mu.Unlock()
+		return true
+	}
 
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -151,4 +161,9 @@ func getIP(conn net.Conn) string {
 		}
 	}
 	return addr
+}
+
+// isLoopback 检查 IP 是否为本地回环地址
+func isLoopback(ip string) bool {
+	return ip == "127.0.0.1" || ip == "::1" || ip == "localhost"
 }

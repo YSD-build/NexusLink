@@ -1,4 +1,11 @@
-nexuslink-server-go
-nexuslink-client-go
-nexuslink-server
-nexuslink-client
+# 二进制文件（已通过 Release 发布）
+nexuslink-release/
+*.tar.gz
+
+# 临时配置
+test/client_custom.yaml
+test/echo_tcp_custom.py
+test/echo_udp_custom.py
+
+# 截图
+screenshots/

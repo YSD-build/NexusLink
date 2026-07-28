@@ -5,332 +5,574 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NexusLink 管理面板</title>
 <style>
-/* ========== RESET & VARIABLES ========== */
+/* ========== RESET & SAKURA DESIGN TOKENS ========== */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --sakura-50:#fff5f7;
-  --sakura-100:#ffe4e8;
-  --sakura-200:#ffccd5;
-  --sakura-300:#ffb3bf;
-  --sakura-400:#ff8fa3;
-  --sakura-500:#ff6b81;
-  --sakura-600:#e91e63;
-  --sakura-700:#c1174f;
-  --bg:#fafafa;
-  --surface:#fff;
-  --sidebar-bg:linear-gradient(180deg,#1a1a2e 0%,#16213e 100%);
-  --sidebar-text:#c0c0d0;
-  --sidebar-active:#ff6b81;
-  --sidebar-hover:#2a2a4a;
-  --text:#2c2c3a;
-  --text-secondary:#808090;
-  --border:#eee;
-  --shadow-sm:0 1px 2px rgba(0,0,0,.04);
-  --shadow-md:0 4px 12px rgba(0,0,0,.06);
-  --shadow-lg:0 8px 24px rgba(0,0,0,.08);
-  --radius-sm:8px;
-  --radius-md:12px;
-  --radius-lg:16px;
-  --radius-xl:24px;
-  --transition:all .25s ease;
+  /* 樱花色系 - 从淡粉到深红 */
+  --sakura-50:#fef1f5;
+  --sakura-100:#fce7f0;
+  --sakura-200:#f9d0e0;
+  --sakura-300:#f5a8c4;
+  --sakura-400:#ef7da8;
+  --sakura-500:#e8568a;
+  --sakura-600:#d93b72;
+  --sakura-700:#b82d5c;
+  --sakura-800:#99254d;
+  --sakura-900:#7e2145;
+  /* 语义色 */
+  --bg:#faf7f8;
+  --bg-subtle:linear-gradient(135deg,#fdf2f4 0%,#f8f0f2 50%,#fdf2f4 100%);
+  --surface:rgba(255,255,255,.78);
+  --surface-solid:#fff;
+  --surface-hover:rgba(255,255,255,.92);
+  --text:#3a2a30;
+  --text-secondary:#8a7a82;
+  --text-tertiary:#b5a5ad;
+  --border:rgba(233,30,99,.08);
+  --border-strong:rgba(233,30,99,.15);
+  /* 侧边栏 - 透明毛玻璃 */
+  --sidebar-bg:rgba(255,255,255,.18);
+  --sidebar-text:#6a5a64;
+  --sidebar-active:#e8568a;
+  --sidebar-hover:rgba(232,86,138,.1);
+  --sidebar-border:rgba(255,255,255,.25);
+  /* 阴影 - 樱花粉色调 */
+  --shadow-xs:0 1px 3px rgba(233,30,99,.04);
+  --shadow-sm:0 2px 8px rgba(233,30,99,.06);
+  --shadow-md:0 4px 16px rgba(233,30,99,.08);
+  --shadow-lg:0 8px 32px rgba(233,30,99,.1);
+  --shadow-xl:0 16px 48px rgba(233,30,99,.12);
+  --shadow-glow:0 0 20px rgba(233,30,99,.15);
+  --shadow-card-hover:0 12px 40px rgba(233,30,99,.12);
+  /* 圆角 */
+  --radius-xs:6px;
+  --radius-sm:10px;
+  --radius-md:14px;
+  --radius-lg:18px;
+  --radius-xl:28px;
+  --radius-full:9999px;
+  /* 动画 */
+  --ease-bounce:cubic-bezier(.34,1.56,.64,1);
+  --ease-smooth:cubic-bezier(.4,0,.2,1);
+  --transition-fast:all .18s var(--ease-smooth);
+  --transition:all .28s var(--ease-smooth);
+  --transition-slow:all .4s var(--ease-smooth);
+  /* 毛玻璃 */
+  --glass-bg:rgba(255,255,255,.65);
+  --glass-border:rgba(255,255,255,.35);
+  --glass-blur:blur(16px);
+  --glass-blur-strong:blur(24px);
 }
-[data-theme="dark"]{
-  --bg:#1a1a2e;
-  --surface:#16213e;
-  --text:#e8e8f0;
-  --text-secondary:#9090a0;
-  --border:#2a2a4a;
-  --shadow-sm:0 1px 2px rgba(0,0,0,.2);
-  --shadow-md:0 4px 12px rgba(0,0,0,.3);
-  --shadow-lg:0 8px 24px rgba(0,0,0,.4);
-  --sidebar-bg:#0f0f23;
-}
+
+/* ========== BASE ========== */
 body{
-  font-family:'PingFang SC','Microsoft YaHei',system-ui,-apple-system,sans-serif;
+  font-family:'PingFang SC','Hiragino Sans GB','Microsoft YaHei',system-ui,-apple-system,sans-serif;
   background:var(--bg);
+  background-image:var(--bg-subtle);
   color:var(--text);
   line-height:1.6;
   display:flex;
   min-height:100vh;
   transition:var(--transition);
+  overflow-x:hidden;
 }
 
-/* ========== SIDEBAR ========== */
+/* ========== SAKURA PETALS ANIMATION ========== */
+.sakura-bg{
+  position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden;
+}
+.petal{
+  position:absolute;
+  width:12px;height:12px;
+  background:radial-gradient(ellipse at 30% 30%,var(--sakura-200),var(--sakura-300));
+  border-radius:50% 0 50% 50%;
+  opacity:.35;
+  animation:petalFall linear infinite;
+  filter:blur(.5px);
+}
+.petal:nth-child(odd){border-radius:0 50% 50% 50%}
+.petal:nth-child(3n){width:8px;height:8px;opacity:.2}
+.petal:nth-child(5n){width:16px;height:16px;opacity:.28}
+@keyframes petalFall{
+  0%{transform:translateY(-20px) rotate(0deg) scale(1);opacity:.4}
+  25%{transform:translateY(25vh) rotate(90deg) translateX(40px) scale(.95)}
+  50%{transform:translateY(50vh) rotate(180deg) translateX(-20px) scale(.9)}
+  75%{transform:translateY(75vh) rotate(270deg) translateX(30px) scale(.85)}
+  100%{transform:translateY(105vh) rotate(360deg) translateX(-10px) scale(.8);opacity:0}
+}
+
+/* ========== SIDEBAR - 透明毛玻璃 ========== */
 .sidebar{
-  width:240px;
+  width:260px;
   min-height:100vh;
   background:var(--sidebar-bg);
-  color:#fff;
+  backdrop-filter:blur(28px) saturate(200%);
+  -webkit-backdrop-filter:blur(28px) saturate(200%);
+  color:var(--sidebar-text);
   display:flex;
   flex-direction:column;
   position:fixed;
   left:0;top:0;bottom:0;
   z-index:100;
-  transition:transform .3s ease;
+  transition:transform .35s cubic-bezier(.4,0,.2,1);
+  border-right:1px solid var(--sidebar-border);
+  box-shadow:4px 0 32px rgba(233,30,99,.06);
 }
 .sidebar-brand{
-  padding:24px 20px;
-  border-bottom:1px solid rgba(255,255,255,.08);
+  padding:28px 24px;
+  border-bottom:1px solid var(--sidebar-border);
   display:flex;
   align-items:center;
-  gap:12px;
+  gap:14px;
 }
-.sidebar-brand .logo-icon{font-size:24px}
-.sidebar-brand .logo-text{font-size:20px;font-weight:700;color:#fff}
-.sidebar-brand .logo-version{font-size:12px;color:#808090;margin-left:auto}
-.sidebar-nav{
-  flex:1;padding:12px 0;overflow-y:auto;
+.sidebar-brand .logo-text{
+  font-size:22px;font-weight:700;
+  background:linear-gradient(135deg,var(--sakura-600),var(--sakura-500));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  background-clip:text;letter-spacing:.5px;
 }
+.sidebar-brand .logo-version{
+  font-size:11px;color:var(--sakura-600);
+  background:rgba(232,86,138,.12);
+  padding:2px 10px;border-radius:var(--radius-full);
+  margin-left:auto;font-weight:500;
+}
+.sidebar-nav{flex:1;padding:16px 12px;overflow-y:auto}
 .nav-item{
-  display:flex;align-items:center;gap:12px;
-  padding:12px 20px;margin:2px 8px;
+  display:flex;align-items:center;
+  padding:13px 20px;margin:3px 0;
   border-radius:var(--radius-md);
   color:var(--sidebar-text);
   text-decoration:none;
   font-size:14px;font-weight:500;cursor:pointer;
   transition:var(--transition);
-  border:none;background:none;width:calc(100% - 16px);
+  border:none;background:none;width:100%;
+  position:relative;overflow:hidden;
 }
-.nav-item:hover{background:var(--sidebar-hover);color:#fff}
-.nav-item.active{background:var(--sidebar-active);color:#fff;box-shadow:0 4px 12px rgba(255,107,129,.3)}
-.nav-item .nav-icon{font-size:18px;width:24px;text-align:center}
+.nav-item::before{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(135deg,var(--sakura-500),var(--sakura-600));
+  opacity:0;transition:opacity .28s ease;
+  border-radius:var(--radius-md);
+}
+.nav-item:hover{color:var(--sakura-700)}
+.nav-item:hover::before{opacity:.08}
+.nav-item.active{color:#fff}
+.nav-item.active::before{opacity:1;box-shadow:0 4px 16px rgba(232,86,138,.3)}
+.nav-item span{position:relative;z-index:1}
 .sidebar-footer{
-  padding:16px 20px;
-  border-top:1px solid rgba(255,255,255,.08);
+  padding:18px 20px;
+  border-top:1px solid var(--sidebar-border);
   display:flex;align-items:center;gap:12px;
 }
 .theme-toggle{
-  width:36px;height:36px;border-radius:var(--radius-sm);border:1px solid rgba(255,255,255,.15);
-  background:transparent;color:var(--sidebar-text);cursor:pointer;font-size:18px;
+  height:42px;border-radius:var(--radius-sm);
+  border:1px solid var(--sidebar-border);
+  background:transparent;color:var(--sidebar-text);
+  cursor:pointer;font-size:14px;font-weight:500;
   display:flex;align-items:center;justify-content:center;
   transition:var(--transition);
 }
-.theme-toggle:hover{background:var(--sidebar-hover);color:#fff}
+.theme-toggle:hover{
+  background:linear-gradient(135deg,var(--sakura-500),var(--sakura-600));
+  color:#fff;border-color:transparent;
+  box-shadow:0 4px 16px rgba(232,86,138,.25);
+}
 
 /* ========== MAIN CONTENT ========== */
 .main-content{
-  margin-left:240px;flex:1;
-  padding:28px 32px;
+  margin-left:260px;flex:1;
+  padding:32px 36px;
   min-height:100vh;
+  position:relative;z-index:1;
   transition:var(--transition);
 }
 .page-header{
   display:flex;align-items:center;justify-content:space-between;
-  margin-bottom:28px;
+  margin-bottom:32px;
 }
-.page-title{font-size:24px;font-weight:700;color:var(--text)}
-.page-subtitle{font-size:14px;color:var(--text-secondary);margin-top:4px}
+.page-title{
+  font-size:26px;font-weight:700;color:var(--text);
+  background:linear-gradient(135deg,var(--sakura-600),var(--sakura-500));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  background-clip:text;
+}
+.page-subtitle{font-size:14px;color:var(--text-secondary);margin-top:6px}
 
-/* ========== STATS CARDS / 樱花瓣服务器信息卡片 ========== */
+/* ========== STATS CARDS ========== */
 .stats-grid{
   display:grid;
-  grid-template-columns:repeat(auto-fit,minmax(220px,1fr));
+  grid-template-columns:repeat(auto-fit,minmax(230px,1fr));
   gap:20px;
-  margin-bottom:28px;
+  margin-bottom:32px;
 }
 .stat-card{
-  background:var(--surface);
+  background:var(--glass-bg);
+  backdrop-filter:var(--glass-blur);
+  -webkit-backdrop-filter:var(--glass-blur);
   border-radius:var(--radius-lg);
-  padding:24px;
+  padding:28px;
   box-shadow:var(--shadow-md);
   transition:var(--transition);
   position:relative;
   overflow:hidden;
-  border:1px solid var(--border);
+  border:1px solid var(--glass-border);
+  cursor:default;
 }
 .stat-card::before{
-  content:'';
-  position:absolute;
-  top:-20px;right:-20px;
-  width:80px;height:80px;
-  border-radius:50%;
-  opacity:.08;
+  content:'';position:absolute;top:-30px;right:-30px;
+  width:100px;height:100px;border-radius:50%;
+  background:linear-gradient(135deg,var(--sakura-200),var(--sakura-400));
+  opacity:.12;transition:opacity .3s ease;
 }
-.stat-card:nth-child(1)::before{background:#ff6b81}
-.stat-card:nth-child(2)::before{background:#ff8fa3}
-.stat-card:nth-child(3)::before{background:#ffb3bf}
-.stat-card:nth-child(4)::before{background:#e91e63}
+.stat-card::after{
+  content:'';position:absolute;bottom:-20px;left:-20px;
+  width:60px;height:60px;border-radius:50%;
+  background:linear-gradient(135deg,var(--sakura-300),var(--sakura-500));
+  opacity:.06;
+}
 .stat-card:hover{
-  transform:translateY(-4px);
-  box-shadow:var(--shadow-lg);
+  transform:translateY(-6px) scale(1.01);
+  box-shadow:var(--shadow-card-hover);
+  border-color:var(--border-strong);
 }
-.stat-card .stat-icon{font-size:28px;margin-bottom:12px}
-.stat-card .stat-value{font-size:32px;font-weight:700;color:var(--sakura-600)}
-.stat-card .stat-label{font-size:13px;color:var(--text-secondary);margin-top:4px}
-.stat-card .stat-change{font-size:12px;margin-top:8px}
+.stat-card:hover::before{opacity:.2}
+.stat-card .stat-value{
+  font-size:34px;font-weight:800;
+  background:linear-gradient(135deg,var(--sakura-600),var(--sakura-500));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  background-clip:text;
+  line-height:1.2;
+}
+.stat-card .stat-label{font-size:13px;color:var(--text-secondary);margin-top:6px;font-weight:500}
+.stat-card .stat-change{font-size:12px;margin-top:10px;font-weight:500}
+.stat-card .stat-line{
+  position:absolute;bottom:0;left:0;right:0;height:3px;
+  background:linear-gradient(90deg,transparent,var(--sakura-400),transparent);
+  opacity:0;transition:opacity .3s ease;
+}
+.stat-card:hover .stat-line{opacity:1}
 
 /* ========== CONTENT SECTIONS ========== */
-.content-section{margin-bottom:28px}
-.section-title{font-size:18px;font-weight:600;color:var(--text);margin-bottom:16px}
+.content-section{margin-bottom:32px}
+.section-title{
+  font-size:18px;font-weight:600;color:var(--text);margin-bottom:18px;
+  display:flex;align-items:center;gap:10px;
+}
+.section-title::before{
+  content:'';width:4px;height:20px;border-radius:2px;
+  background:linear-gradient(180deg,var(--sakura-500),var(--sakura-400));
+}
 .card{
-  background:var(--surface);
+  background:var(--glass-bg);
+  backdrop-filter:var(--glass-blur);
+  -webkit-backdrop-filter:var(--glass-blur);
   border-radius:var(--radius-lg);
   box-shadow:var(--shadow-md);
-  border:1px solid var(--border);
+  border:1px solid var(--glass-border);
   overflow:hidden;
+  transition:var(--transition);
 }
+.card:hover{border-color:var(--border-strong)}
 .card-header{
-  padding:16px 24px;
+  padding:18px 28px;
   border-bottom:1px solid var(--border);
   display:flex;align-items:center;justify-content:space-between;
+  background:linear-gradient(180deg,rgba(232,86,138,.02),transparent);
 }
 
 /* ========== TABLE ========== */
 .data-table{width:100%;border-collapse:collapse}
 .data-table th{
-  text-align:left;padding:14px 24px;
+  text-align:left;padding:14px 28px;
   font-size:12px;font-weight:600;color:var(--text-secondary);
-  text-transform:uppercase;letter-spacing:.5px;
-  background:var(--sakura-50);
+  text-transform:uppercase;letter-spacing:.8px;
+  background:linear-gradient(180deg,var(--sakura-50),rgba(249,208,224,.15));
   border-bottom:1px solid var(--border);
 }
 .data-table td{
-  padding:14px 24px;font-size:14px;
+  padding:15px 28px;font-size:14px;
   border-bottom:1px solid var(--border);
   color:var(--text);
+  transition:var(--transition-fast);
 }
-.data-table tr:hover td{background:var(--sakura-50)}
+.data-table tbody tr{transition:var(--transition-fast)}
+.data-table tbody tr:hover td{
+  background:linear-gradient(90deg,var(--sakura-50),rgba(249,208,224,.08));
+}
+.data-table tbody tr:last-child td{border-bottom:none}
 .badge{
-  display:inline-block;padding:4px 12px;border-radius:20px;
-  font-size:12px;font-weight:600;
+  display:inline-flex;align-items:center;gap:4px;
+  padding:5px 14px;border-radius:var(--radius-full);
+  font-size:12px;font-weight:600;letter-spacing:.3px;
 }
-.badge-success{background:rgba(76,175,80,.12);color:#2e7d32}
-.badge-danger{background:rgba(244,67,54,.12);color:#c62828}
-.badge-info{background:rgba(33,150,243,.12);color:#1565c0}
-.badge-warning{background:rgba(255,152,0,.12);color:#e65100}
+.badge-success{
+  background:linear-gradient(135deg,rgba(76,175,80,.1),rgba(76,175,80,.15));
+  color:#2e7d32;
+  border:1px solid rgba(76,175,80,.15);
+}
+.badge-danger{
+  background:linear-gradient(135deg,rgba(244,67,54,.08),rgba(244,67,54,.14));
+  color:#c62828;
+  border:1px solid rgba(244,67,54,.12);
+}
+.badge-info{
+  background:linear-gradient(135deg,rgba(232,86,138,.08),rgba(232,86,138,.15));
+  color:var(--sakura-700);
+  border:1px solid rgba(232,86,138,.12);
+}
+.badge-warning{
+  background:linear-gradient(135deg,rgba(255,152,0,.08),rgba(255,152,0,.14));
+  color:#e65100;
+  border:1px solid rgba(255,152,0,.12);
+}
 
 /* ========== LOG LIST ========== */
-.log-list{max-height:400px;overflow-y:auto}
+.log-list{max-height:440px;overflow-y:auto}
 .log-item{
-  display:flex;align-items:flex-start;gap:12px;
-  padding:12px 24px;border-bottom:1px solid var(--border);
-  font-size:13px;line-height:1.5;
+  display:flex;align-items:flex-start;gap:14px;
+  padding:14px 28px;
+  border-bottom:1px solid var(--border);
+  font-size:13px;line-height:1.6;
+  transition:var(--transition-fast);
 }
+.log-item:hover{background:linear-gradient(90deg,var(--sakura-50),transparent)}
 .log-item:last-child{border-bottom:none}
-.log-time{color:var(--text-secondary);font-size:12px;white-space:nowrap;min-width:140px}
+.log-time{color:var(--text-tertiary);font-size:12px;white-space:nowrap;min-width:150px;font-variant-numeric:tabular-nums}
 .log-level{
-  font-size:11px;font-weight:600;padding:2px 8px;border-radius:20px;
-  text-transform:uppercase;min-width:56px;text-align:center;
+  font-size:11px;font-weight:600;padding:3px 10px;border-radius:var(--radius-full);
+  text-transform:uppercase;min-width:58px;text-align:center;letter-spacing:.5px;
 }
-.log-level.info{background:rgba(76,175,80,.12);color:#2e7d32}
-.log-level.warn{background:rgba(255,152,0,.12);color:#e65100}
-.log-level.error{background:rgba(244,67,54,.12);color:#c62828}
+.log-level.info{
+  background:linear-gradient(135deg,rgba(76,175,80,.1),rgba(76,175,80,.15));
+  color:#2e7d32;
+}
+.log-level.warn{
+  background:linear-gradient(135deg,rgba(255,152,0,.1),rgba(255,152,0,.15));
+  color:#e65100;
+}
+.log-level.error{
+  background:linear-gradient(135deg,rgba(244,67,54,.1),rgba(244,67,54,.15));
+  color:#c62828;
+}
 
 /* ========== BUTTONS ========== */
 .btn{
   display:inline-flex;align-items:center;gap:8px;
-  padding:10px 20px;border-radius:var(--radius-sm);
+  padding:11px 22px;border-radius:var(--radius-sm);
   font-size:14px;font-weight:500;cursor:pointer;
   border:none;transition:var(--transition);
+  position:relative;overflow:hidden;
 }
 .btn-primary{
-  background:linear-gradient(135deg,var(--sakura-400),var(--sakura-500));
-  color:#fff;box-shadow:0 4px 12px rgba(255,107,129,.3);
+  background:linear-gradient(135deg,var(--sakura-500),var(--sakura-600));
+  color:#fff;box-shadow:0 4px 16px rgba(232,86,138,.25);
 }
-.btn-primary:hover{transform:translateY(-2px);box-shadow:0 6px 16px rgba(255,107,129,.4)}
+.btn-primary:hover{
+  transform:translateY(-2px);
+  box-shadow:0 8px 24px rgba(232,86,138,.35);
+  filter:brightness(1.05);
+}
+.btn-primary:active{transform:translateY(0);box-shadow:0 2px 8px rgba(232,86,138,.2)}
 .btn-secondary{
   background:var(--surface);color:var(--text);
   border:1px solid var(--border);
 }
-.btn-secondary:hover{background:var(--sakura-50)}
+.btn-secondary:hover{background:var(--surface-hover);border-color:var(--border-strong)}
 
 /* ========== LOGIN PAGE ========== */
 .login-page{
   position:fixed;inset:0;z-index:9999;
   display:flex;align-items:center;justify-content:center;
   background:var(--bg);
+  background-image:
+    radial-gradient(ellipse at 20% 50%,rgba(249,208,224,.3) 0%,transparent 50%),
+    radial-gradient(ellipse at 80% 20%,rgba(245,168,196,.2) 0%,transparent 50%),
+    radial-gradient(ellipse at 50% 80%,rgba(239,125,168,.15) 0%,transparent 50%);
 }
 .login-box{
-  background:var(--surface);
-  padding:48px 32px;border-radius:var(--radius-xl);
-  box-shadow:var(--shadow-lg);
-  width:100%;max-width:400px;
+  background:var(--glass-bg);
+  backdrop-filter:var(--glass-blur-strong);
+  -webkit-backdrop-filter:var(--glass-blur-strong);
+  padding:52px 40px;border-radius:var(--radius-xl);
+  box-shadow:var(--shadow-xl);
+  width:100%;max-width:420px;
   text-align:center;
-  border:1px solid var(--border);
+  border:1px solid var(--glass-border);
+  position:relative;overflow:hidden;
+  animation:loginFloat .6s var(--ease-bounce);
 }
-.login-box h1{font-size:28px;color:var(--sakura-600);margin-bottom:8px}
-.login-box p{color:var(--text-secondary);font-size:14px;margin-bottom:28px}
+.login-box::before{
+  content:'';position:absolute;top:-50%;left:-50%;
+  width:200%;height:200%;
+  background:conic-gradient(from 0deg,transparent,rgba(232,86,138,.03),transparent,rgba(245,168,196,.03),transparent);
+  animation:loginShimmer 8s linear infinite;
+}
+@keyframes loginShimmer{to{transform:rotate(360deg)}}
+@keyframes loginFloat{from{opacity:0;transform:translateY(20px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}
+.login-box h1{
+  font-size:32px;
+  background:linear-gradient(135deg,var(--sakura-600),var(--sakura-500),var(--sakura-400));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+  background-clip:text;
+  margin-bottom:10px;font-weight:800;
+  position:relative;z-index:1;
+}
+.login-box .login-sakura{font-size:48px;display:block;margin-bottom:16px;position:relative;z-index:1}
+.login-box p{color:var(--text-secondary);font-size:14px;margin-bottom:32px;position:relative;z-index:1}
 .login-box input{
-  width:100%;padding:14px 18px;border-radius:var(--radius-sm);
-  border:1px solid var(--border);background:var(--bg);color:var(--text);
-  font-size:15px;margin-bottom:16px;outline:none;
+  width:100%;padding:16px 20px;border-radius:var(--radius-md);
+  border:1.5px solid var(--border);
+  background:var(--surface-solid);color:var(--text);
+  font-size:15px;margin-bottom:20px;outline:none;
   transition:var(--transition);
+  position:relative;z-index:1;
 }
-.login-box input:focus{border-color:var(--sakura-400);box-shadow:0 0 0 3px rgba(255,107,129,.1)}
+.login-box input:focus{
+  border-color:var(--sakura-500);
+  box-shadow:0 0 0 4px rgba(232,86,138,.08),var(--shadow-sm);
+}
+.login-box input::placeholder{color:var(--text-tertiary)}
 .login-box .login-btn{
-  width:100%;padding:14px;border-radius:var(--radius-sm);
-  background:linear-gradient(135deg,var(--sakura-400),var(--sakura-500));
+  width:100%;padding:16px;border-radius:var(--radius-md);
+  background:linear-gradient(135deg,var(--sakura-500),var(--sakura-600),var(--sakura-500));
+  background-size:200% 200%;
+  animation:btnGradient 3s ease infinite;
   color:#fff;border:none;font-size:16px;font-weight:600;cursor:pointer;
   transition:var(--transition);
+  box-shadow:0 6px 20px rgba(232,86,138,.3);
+  position:relative;z-index:1;
 }
-.login-box .login-btn:hover{transform:translateY(-2px);box-shadow:0 6px 16px rgba(255,107,129,.4)}
-.login-error{color:#c62828;font-size:13px;margin-top:12px}
+@keyframes btnGradient{0%,100%{background-position:0% 50%}50%{background-position:100% 50%}}
+.login-box .login-btn:hover{
+  transform:translateY(-3px);
+  box-shadow:0 10px 30px rgba(232,86,138,.4);
+}
+.login-box .login-btn:active{transform:translateY(0);box-shadow:0 4px 12px rgba(232,86,138,.25)}
+.login-error{color:var(--sakura-700);font-size:13px;margin-top:14px;position:relative;z-index:1;font-weight:500}
+
+/* ========== SECURITY SETTINGS ========== */
+.security-grid{
+  display:grid;grid-template-columns:1fr 1fr;gap:16px;
+}
+.security-item{
+  display:flex;align-items:center;gap:14px;
+  padding:18px 22px;border-radius:var(--radius-md);
+  background:var(--surface-solid);
+  border:1px solid var(--border);
+  transition:var(--transition);
+}
+.security-item:hover{border-color:var(--border-strong);box-shadow:var(--shadow-sm)}
+.security-item .sec-label{font-size:13px;color:var(--text-secondary)}
+.security-item .sec-value{font-size:14px;font-weight:600;color:var(--text)}
 
 /* ========== MOBILE RESPONSIVE ========== */
 .menu-toggle{
   display:none;position:fixed;top:16px;left:16px;
-  z-index:200;width:40px;height:40px;border-radius:var(--radius-sm);
-  background:var(--surface);border:1px solid var(--border);
+  z-index:200;width:42px;height:42px;border-radius:var(--radius-sm);
+  background:var(--glass-bg);
+  backdrop-filter:var(--glass-blur);
+  -webkit-backdrop-filter:var(--glass-blur);
+  border:1px solid var(--glass-border);
   font-size:20px;cursor:pointer;
+  box-shadow:var(--shadow-sm);
+  color:var(--text);
 }
 @media(max-width:768px){
   .sidebar{transform:translateX(-100%)}
   .sidebar.open{transform:translateX(0)}
-  .main-content{margin-left:0;padding:20px 16px}
+  .main-content{margin-left:0;padding:24px 18px;padding-top:64px}
   .menu-toggle{display:flex;align-items:center;justify-content:center}
   .stats-grid{grid-template-columns:1fr 1fr}
+  .security-grid{grid-template-columns:1fr}
+  .data-table th,.data-table td{padding:12px 16px}
 }
 
 /* ========== EMPTY STATE ========== */
-.empty-state{text-align:center;padding:60px 20px;color:var(--text-secondary)}
-.empty-state svg{margin-bottom:16px;opacity:.4}
+.empty-state{text-align:center;padding:64px 24px;color:var(--text-tertiary)}
+.empty-state svg{margin-bottom:18px;opacity:.35}
 .empty-state p{font-size:14px}
 
 /* ========== ANIMATION ========== */
-@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-.fadeIn{animation:fadeIn .4s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes slideIn{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:translateX(0)}}
+.fadeIn{animation:fadeIn .45s var(--ease-smooth)}
+.fadeIn:nth-child(2){animation-delay:.05s}
+.fadeIn:nth-child(3){animation-delay:.1s}
+.fadeIn:nth-child(4){animation-delay:.15s}
 
 /* ========== HIDDEN ========== */
 .hidden{display:none!important}
 
-/* Scrollbar */
-::-webkit-scrollbar{width:5px}
+/* ========== SCROLLBAR ========== */
+::-webkit-scrollbar{width:6px}
 ::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:var(--sakura-300);border-radius:10px}
+::-webkit-scrollbar-thumb{
+  background:linear-gradient(180deg,var(--sakura-300),var(--sakura-400));
+  border-radius:10px;
+}
+::-webkit-scrollbar-thumb:hover{background:var(--sakura-500)}
+
+/* ========== SELECTION ========== */
+::selection{background:rgba(232,86,138,.15);color:var(--sakura-800)}
+
+/* ========== OVERLAY FOR MOBILE ========== */
+.sidebar-overlay{
+  display:none;position:fixed;inset:0;
+  background:rgba(0,0,0,.3);z-index:99;
+  backdrop-filter:blur(4px);
+  -webkit-backdrop-filter:blur(4px);
+}
+.sidebar-overlay.active{display:block}
+@media(max-width:768px){
+  .sidebar.open ~ .sidebar-overlay{display:block}
+}
+
+/* ========== PULSE DOT ========== */
+.pulse-dot{
+  width:8px;height:8px;border-radius:50%;
+  background:var(--sakura-500);
+  display:inline-block;margin-right:6px;
+  animation:pulse 2s ease-in-out infinite;
+}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(232,86,138,.4)}50%{box-shadow:0 0 0 6px rgba(232,86,138,0)}}
 </style>
 </head>
 <body>
 
+<!-- Sakura Petals Background -->
+<div class="sakura-bg" id="sakuraBg"></div>
+
 <!-- Mobile Menu Toggle -->
-<button class="menu-toggle" onclick="toggleSidebar()">☰</button>
+<button class="menu-toggle" onclick="toggleSidebar()">菜单</button>
 
 <!-- ========== SIDEBAR ========== -->
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-brand">
-    <span class="logo-icon">🌸</span>
     <span class="logo-text">NexusLink</span>
     <span class="logo-version" id="sidebarVersion">v0.3.3</span>
   </div>
   <nav class="sidebar-nav">
     <button class="nav-item active" data-page="dashboard" onclick="switchPage('dashboard',this)">
-      <span class="nav-icon">📊</span> 仪表盘
+      <span>仪表盘</span>
     </button>
     <button class="nav-item" data-page="proxies" onclick="switchPage('proxies',this)">
-      <span class="nav-icon">🔗</span> 代理管理
+      <span>代理管理</span>
     </button>
     <button class="nav-item" data-page="logs" onclick="switchPage('logs',this)">
-      <span class="nav-icon">📋</span> 系统日志
+      <span>系统日志</span>
     </button>
     <button class="nav-item" data-page="settings" onclick="switchPage('settings',this)">
-      <span class="nav-icon">⚙️</span> 设置
+      <span>设置</span>
     </button>
   </nav>
   <div class="sidebar-footer">
-    <button class="theme-toggle" onclick="toggleTheme()" title="切换主题">🌙</button>
-    <span style="font-size:12px;color:var(--sidebar-text);flex:1">主题</span>
-    <button class="theme-toggle" onclick="handleLogout()" title="退出登录" style="font-size:14px">⟪</button>
+    <button class="theme-toggle" onclick="handleLogout()" title="退出登录" style="width:100%;font-size:14px">退出登录</button>
   </div>
 </aside>
+
+<!-- Sidebar Overlay for Mobile -->
+<div class="sidebar-overlay" id="sidebarOverlay" onclick="toggleSidebar()"></div>
 
 <!-- ========== MAIN CONTENT ========== -->
 <main class="main-content" id="mainContent">
@@ -338,44 +580,48 @@ body{
   <!-- ===== DASHBOARD PAGE ===== -->
   <div class="page-content" id="page-dashboard">
     <div class="page-header">
-      <div><div class="page-title">仪表盘</div><div class="page-subtitle">服务器运行状态概览</div></div>
+      <div>
+        <div class="page-title">仪表盘</div>
+        <div class="page-subtitle">服务器运行状态概览</div>
+      </div>
+      <div><span class="pulse-dot"></span><span style="font-size:13px;color:var(--text-secondary)">实时监控中</span></div>
     </div>
 
-    <!-- 服务器信息统计卡片 -->
-    <div class="stats-grid fadeIn">
-      <div class="stat-card">
-        <div class="stat-icon">🔌</div>
+    <!-- Stats Cards -->
+    <div class="stats-grid">
+      <div class="stat-card fadeIn">
         <div class="stat-value" id="statClients">0</div>
-        <div class="stat-label">在线客户端连接数</div>
-        <div class="stat-change" style="color:#4caf50">▲ 实时</div>
+        <div class="stat-label">在线客户端</div>
+        <div class="stat-change" style="color:#2e7d32">● 实时</div>
+        <div class="stat-line"></div>
       </div>
-      <div class="stat-card">
-        <div class="stat-icon">🔗</div>
+      <div class="stat-card fadeIn">
         <div class="stat-value" id="statProxies">0</div>
-        <div class="stat-label">活跃代理数</div>
-        <div class="stat-change" style="color:#4caf50">▲ 实时</div>
+        <div class="stat-label">活跃代理隧道</div>
+        <div class="stat-change" style="color:#2e7d32">● 实时</div>
+        <div class="stat-line"></div>
       </div>
-      <div class="stat-card">
-        <div class="stat-icon">📦</div>
+      <div class="stat-card fadeIn">
         <div class="stat-value" id="statVersion">v0.3.3</div>
         <div class="stat-label">服务端版本</div>
         <div class="stat-change" style="color:var(--text-secondary)">运行中</div>
+        <div class="stat-line"></div>
       </div>
-      <div class="stat-card">
-        <div class="stat-icon">⏱️</div>
+      <div class="stat-card fadeIn">
         <div class="stat-value" id="statUptime" style="font-size:22px">--</div>
         <div class="stat-label">运行时长</div>
         <div class="stat-change" id="statStartTime" style="color:var(--text-secondary)">--</div>
+        <div class="stat-line"></div>
       </div>
     </div>
 
-    <!-- 服务器基础信息 -->
+    <!-- Server Info -->
     <div class="content-section fadeIn">
-      <div class="section-title">📡 服务器信息</div>
+      <div class="section-title">服务器信息</div>
       <div class="card">
         <table class="data-table">
           <tbody>
-            <tr><td style="width:140px;color:var(--text-secondary);font-weight:600">监听地址</td><td id="infoBindAddr">--</td></tr>
+            <tr><td style="width:150px;color:var(--text-secondary);font-weight:600">监听地址</td><td id="infoBindAddr">--</td></tr>
             <tr><td style="color:var(--text-secondary);font-weight:600">监听端口</td><td id="infoBindPort">--</td></tr>
             <tr><td style="color:var(--text-secondary);font-weight:600">客户端数</td><td id="infoClients">0</td></tr>
             <tr><td style="color:var(--text-secondary);font-weight:600">代理数</td><td id="infoProxies">0</td></tr>
@@ -387,9 +633,9 @@ body{
       </div>
     </div>
 
-    <!-- 代理列表预览 -->
+    <!-- Proxy Preview -->
     <div class="content-section fadeIn">
-      <div class="section-title">🔗 代理列表预览</div>
+      <div class="section-title">代理隧道概览</div>
       <div class="card">
         <div class="card-header">
           <span style="font-weight:600">活跃代理</span>
@@ -407,6 +653,9 @@ body{
     </div>
     <div class="content-section">
       <div class="card">
+        <div class="card-header">
+          <span style="font-weight:600">代理列表</span>
+        </div>
         <div id="proxiesTableContainer"></div>
       </div>
     </div>
@@ -416,18 +665,22 @@ body{
   <div class="page-content hidden" id="page-logs">
     <div class="page-header">
       <div><div class="page-title">系统日志</div><div class="page-subtitle">服务器操作记录</div></div>
-      <div style="display:flex;gap:8px">
-        <select id="logFilterLevel" onchange="renderLogs()" class="btn btn-secondary" style="padding:8px 16px;font-size:13px">
+      <div style="display:flex;gap:10px">
+        <select id="logFilterLevel" onchange="renderLogs()" class="btn btn-secondary" style="padding:9px 18px;font-size:13px;border-radius:var(--radius-sm)">
           <option value="">全部级别</option>
           <option value="info">信息</option>
           <option value="warn">警告</option>
           <option value="error">错误</option>
         </select>
-        <button class="btn btn-primary" onclick="fetchLogs()" style="padding:8px 16px;font-size:13px">刷新</button>
+        <button class="btn btn-primary" onclick="fetchLogs()" style="padding:9px 18px;font-size:13px">刷新</button>
       </div>
     </div>
     <div class="content-section">
       <div class="card">
+        <div class="card-header">
+          <span style="font-weight:600">日志记录</span>
+          <span style="font-size:13px;color:var(--text-secondary)" id="logCount">0 条</span>
+        </div>
         <div id="logsList" class="log-list"></div>
       </div>
     </div>
@@ -436,11 +689,11 @@ body{
   <!-- ===== SETTINGS PAGE ===== -->
   <div class="page-content hidden" id="page-settings">
     <div class="page-header">
-      <div><div class="page-title">设置</div><div class="page-subtitle">安全配置与连接守卫</div></div>
+      <div><div class="page-title">安全设置</div><div class="page-subtitle">安全配置与连接守卫</div></div>
     </div>
     <div class="content-section">
-      <div class="section-title">🔒 安全状态</div>
-      <div class="card" style="padding:24px">
+      <div class="section-title">安全状态</div>
+      <div class="card" style="padding:28px">
         <div id="securityInfo"></div>
       </div>
     </div>
@@ -451,15 +704,30 @@ body{
 <!-- ========== LOGIN OVERLAY ========== -->
 <div class="login-page" id="loginPage">
   <div class="login-box">
-    <h1>🌸 NexusLink</h1>
+    <h1>NexusLink</h1>
     <p>Web 管理面板 · 安全认证</p>
-    <input type="password" id="loginPassword" placeholder="请输入管理密码" onkeypress="if(event.key==='Enter')doLogin()">
-    <button class="login-btn" onclick="doLogin()">登录</button>
+    <input type="password" id="loginPassword" placeholder="请输入管理密码" autocomplete="current-password" onkeypress="if(event.key==='Enter')doLogin()">
+    <button class="login-btn" onclick="doLogin()">登 录</button>
     <div class="login-error" id="loginError"></div>
   </div>
 </div>
 
 <script>
+// ==================== SAKURA PETALS GENERATOR ====================
+(function createPetals(){
+  const container = document.getElementById('sakuraBg');
+  const count = 18;
+  for(let i = 0; i < count; i++){
+    const petal = document.createElement('div');
+    petal.className = 'petal';
+    petal.style.left = Math.random() * 100 + '%';
+    petal.style.animationDuration = (8 + Math.random() * 12) + 's';
+    petal.style.animationDelay = (Math.random() * 15) + 's';
+    petal.style.opacity = (.15 + Math.random() * .2).toFixed(2);
+    container.appendChild(petal);
+  }
+})();
+
 // ==================== GLOBAL STATE ====================
 let csrfToken = '';
 let statusData = null;
@@ -469,31 +737,15 @@ let currentPage = 'dashboard';
 
 // ==================== INIT ====================
 document.addEventListener('DOMContentLoaded', () => {
-  loadTheme();
   checkAuth();
 });
 
-// ==================== THEME ====================
-function loadTheme() {
-  const t = localStorage.getItem('nexuslink-theme') || 'light';
-  document.documentElement.setAttribute('data-theme', t);
-  updateThemeButton();
-}
-function toggleTheme() {
-  const cur = document.documentElement.getAttribute('data-theme');
-  const next = cur === 'dark' ? 'light' : 'dark';
-  document.documentElement.setAttribute('data-theme', next);
-  localStorage.setItem('nexuslink-theme', next);
-  updateThemeButton();
-}
-function updateThemeButton() {
-  const isDark = document.documentElement.getAttribute('data-theme') === 'dark';
-  document.querySelectorAll('.theme-toggle')[0].textContent = isDark ? '☀️' : '🌙';
-}
-
 // ==================== SIDEBAR ====================
 function toggleSidebar() {
-  document.getElementById('sidebar').classList.toggle('open');
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebarOverlay');
+  sidebar.classList.toggle('open');
+  overlay.classList.toggle('active');
 }
 function switchPage(page, el) {
   currentPage = page;
@@ -503,6 +755,7 @@ function switchPage(page, el) {
   document.getElementById('page-' + page).classList.remove('hidden');
   // 移动端关闭侧边栏
   document.getElementById('sidebar').classList.remove('open');
+  document.getElementById('sidebarOverlay').classList.remove('active');
   // 加载对应页面数据
   if (page === 'dashboard') refreshDashboard();
   else if (page === 'proxies') renderProxiesPage();
@@ -526,6 +779,7 @@ async function doLogin() {
   const pw = document.getElementById('loginPassword').value;
   const errEl = document.getElementById('loginError');
   errEl.textContent = '';
+  if (!pw) { errEl.textContent = '请输入密码'; return; }
   try {
     const r = await fetch('/api/login', {
       method: 'POST', credentials: 'same-origin',
@@ -535,7 +789,13 @@ async function doLogin() {
     const d = await r.json();
     if (d.success) {
       csrfToken = d.csrf_token;
-      document.getElementById('loginPage').classList.add('hidden');
+      document.getElementById('loginPage').style.opacity = '0';
+      document.getElementById('loginPage').style.transform = 'scale(.95)';
+      setTimeout(() => {
+        document.getElementById('loginPage').classList.add('hidden');
+        document.getElementById('loginPage').style.opacity = '';
+        document.getElementById('loginPage').style.transform = '';
+      }, 300);
       refreshDashboard();
     } else {
       errEl.textContent = d.error || '密码错误';
@@ -583,7 +843,6 @@ async function refreshDashboard() {
   try {
     await Promise.all([fetchStatus(), fetchProxies()]);
     updateDashboardStats();
-    updateDashboardServerInfo();
     updateDashboardProxyPreview();
   } catch(e) {
     if (e.message === 'unauthorized') {
@@ -610,10 +869,6 @@ function updateDashboardStats() {
   document.getElementById('infoUptime').textContent = s.uptime || '--';
 }
 
-function updateDashboardServerInfo() {
-  // Already covered in updateDashboardStats
-}
-
 function updateDashboardProxyPreview() {
   const container = document.getElementById('dashboardProxyList');
   const badges = document.getElementById('proxyCountBadge');
@@ -621,16 +876,16 @@ function updateDashboardProxyPreview() {
   badges.textContent = proxies.length + ' 个';
 
   if (proxies.length === 0) {
-    container.innerHTML = '<div class="empty-state"><p>暂无活跃代理</p></div>';
+    container.innerHTML = '<div class="empty-state"><p>暂无活跃代理隧道</p></div>';
     return;
   }
 
   let html = '<table class="data-table"><thead><tr><th>名称</th><th>类型</th><th>远程端口</th><th>状态</th></tr></thead><tbody>';
   proxies.slice(0, 5).forEach(p => {
     html += `<tr>
-      <td style="font-weight:500">${esc(p.name)}</td>
+      <td style="font-weight:600">${esc(p.name)}</td>
       <td><span class="badge badge-info">${esc(p.type)}</span></td>
-      <td>${p.remotePort}</td>
+      <td style="font-variant-numeric:tabular-nums">${p.remotePort}</td>
       <td><span class="badge ${p.active ? 'badge-success' : 'badge-danger'}">${p.active ? '在线' : '离线'}</span></td>
     </tr>`;
   });
@@ -651,11 +906,11 @@ function renderProxiesPage() {
   let html = '<table class="data-table"><thead><tr><th>名称</th><th>类型</th><th>远程端口</th><th>本地地址</th><th>本地端口</th><th>状态</th></tr></thead><tbody>';
   proxies.forEach(p => {
     html += `<tr>
-      <td style="font-weight:500">${esc(p.name)}</td>
+      <td style="font-weight:600">${esc(p.name)}</td>
       <td><span class="badge badge-info">${esc(p.type)}</span></td>
-      <td>${p.remotePort}</td>
+      <td style="font-variant-numeric:tabular-nums">${p.remotePort}</td>
       <td>${esc(p.localAddr || '--')}</td>
-      <td>${p.localPort || '--'}</td>
+      <td style="font-variant-numeric:tabular-nums">${p.localPort || '--'}</td>
       <td><span class="badge ${p.active ? 'badge-success' : 'badge-danger'}">${p.active ? '在线' : '离线'}</span></td>
     </tr>`;
   });
@@ -666,9 +921,12 @@ function renderProxiesPage() {
 // ==================== LOGS PAGE ====================
 function renderLogs() {
   const container = document.getElementById('logsList');
+  const countEl = document.getElementById('logCount');
   const filter = document.getElementById('logFilterLevel').value;
   let logs = logData;
   if (filter) logs = logs.filter(l => l.level === filter);
+
+  countEl.textContent = logs.length + ' 条';
 
   if (logs.length === 0) {
     container.innerHTML = '<div class="empty-state"><p>暂无日志记录</p></div>';
@@ -690,20 +948,29 @@ function renderLogs() {
 function renderSecurity(data) {
   const container = document.getElementById('securityInfo');
   const items = [
-    { key: '登录保护', val: (data.rate_limit || '已启用') },
-    { key: '会话超时', val: (data.session_timeout || '30分钟') },
-    { key: '密码加密', val: 'SHA-256 + 盐值 (已启用)' },
-    { key: 'CSRF 防护', val: (data.csrf_protection ? '已启用' : '未启用') },
-    { key: 'HttpOnly Cookie', val: (data.httponly_cookie ? '已启用' : '未启用') },
-    { key: '安全响应头', val: (data.security_headers ? '已启用' : '未启用') },
-    { key: '时序攻击防护', val: (data.constant_time_compare ? '已启用' : '未启用') },
-    { key: 'SameSite Cookie', val: (data.samesite_cookie ? '已启用' : '未启用') },
+    { key: '登录保护', val: (data.rate_limit || '已启用'), enabled: true },
+    { key: '会话超时', val: (data.session_timeout || '30分钟'), enabled: true },
+    { key: '密码加密', val: 'SHA-256 + 盐值', enabled: true },
+    { key: 'CSRF 防护', val: (data.csrf_protection ? '已启用' : '未启用'), enabled: !!data.csrf_protection },
+    { key: 'HttpOnly Cookie', val: (data.httponly_cookie ? '已启用' : '未启用'), enabled: !!data.httponly_cookie },
+    { key: '安全响应头', val: (data.security_headers ? '已启用' : '未启用'), enabled: !!data.security_headers },
+    { key: '时序攻击防护', val: (data.constant_time_compare ? '已启用' : '未启用'), enabled: !!data.constant_time_compare },
+    { key: 'SameSite Cookie', val: (data.samesite_cookie ? '已启用' : '未启用'), enabled: !!data.samesite_cookie },
   ];
-  let html = '<table class="data-table"><tbody>';
+
+  let html = '<div class="security-grid">';
   items.forEach(item => {
-    html += `<tr><td style="color:var(--text-secondary);font-weight:600;width:160px">${item.key}</td><td>${item.val}</td></tr>`;
+    const statusColor = item.enabled ? '#2e7d32' : 'var(--text-tertiary)';
+    const dot = item.enabled ? '●' : '○';
+    html += `<div class="security-item">
+      <span style="font-size:22px;color:${statusColor};line-height:1">${dot}</span>
+      <div>
+        <div class="sec-label">${item.key}</div>
+        <div class="sec-value" style="color:${statusColor}">${item.val}</div>
+      </div>
+    </div>`;
   });
-  html += '</tbody></table>';
+  html += '</div>';
   container.innerHTML = html;
 }
 
@@ -719,7 +986,8 @@ function esc(str) {
 setInterval(() => {
   if (currentPage === 'dashboard' && !document.getElementById('loginPage').classList.contains('hidden')) return;
   if (currentPage === 'dashboard') refreshDashboard();
-}, 10000); // 每10秒刷新
+  else if (currentPage === 'logs') fetchLogs();
+}, 10000);
 </script>
 </body>
 </html>
