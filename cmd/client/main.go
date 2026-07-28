@@ -98,11 +98,11 @@ func main() {
 		addr := fmt.Sprintf("%s:%d", cfg.ServerIP, cfg.ServerPort)
 		conn, err := net.DialTimeout("tcp", addr, 3*time.Second)
 		if err != nil {
-			log.Printf("⚠️ 警告: 无法连接到服务器 %s (继续等待重试)", addr)
+			log.Printf("[WARN] 警告: 无法连接到服务器 %s (继续等待重试)", addr)
 			// 不退出，让 connect 函数自行处理重试
 		} else {
 			conn.Close()
-			log.Printf("✓ 服务器 %s 可达", addr)
+			log.Printf("[OK] 服务器 %s 可达", addr)
 		}
 	}
 
