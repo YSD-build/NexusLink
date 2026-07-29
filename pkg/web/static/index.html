@@ -516,6 +516,74 @@ body{
 /* ========== SELECTION ========== */
 ::selection{background:rgba(232,86,138,.15);color:var(--sakura-800)}
 
+/* ========== API TOKEN PAGE ========== */
+.token-display{max-width:720px}
+.token-label{font-size:14px;font-weight:600;color:var(--text-secondary);margin-bottom:12px}
+.token-value-box{display:flex;gap:10px;align-items:center}
+.token-value-box input{
+  flex:1;padding:14px 18px;border-radius:var(--radius-md);
+  border:1.5px solid var(--border);background:var(--surface-solid);color:var(--text);
+  font-size:14px;font-family:'SF Mono',monospace;letter-spacing:.5px;
+  outline:none;transition:var(--transition);
+}
+.token-value-box input:focus{border-color:var(--sakura-500);box-shadow:0 0 0 4px rgba(232,86,138,.08)}
+.token-hint{font-size:13px;color:var(--text-tertiary);margin-top:14px;line-height:1.6}
+
+/* ========== ABOUT PAGE ========== */
+.about-card{
+  background:var(--glass-bg);backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
+  border-radius:var(--radius-xl);padding:52px 40px;text-align:center;
+  box-shadow:var(--shadow-lg);border:1px solid var(--glass-border);
+  position:relative;overflow:hidden;transition:var(--transition);
+}
+.about-card:hover{border-color:var(--border-strong);box-shadow:var(--shadow-xl)}
+.about-card::before{
+  content:'';position:absolute;top:-40px;right:-40px;
+  width:140px;height:140px;border-radius:50%;
+  background:linear-gradient(135deg,var(--sakura-200),var(--sakura-400));
+  opacity:.15;
+}
+.about-card::after{
+  content:'';position:absolute;bottom:-30px;left:-30px;
+  width:80px;height:80px;border-radius:50%;
+  background:linear-gradient(135deg,var(--sakura-300),var(--sakura-500));
+  opacity:.08;
+}
+.about-logo{
+  font-size:42px;font-weight:800;
+  background:linear-gradient(135deg,var(--sakura-600),var(--sakura-500),var(--sakura-400));
+  -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+  margin-bottom:10px;position:relative;z-index:1;
+}
+.about-version{
+  display:inline-block;font-size:13px;font-weight:600;color:var(--sakura-600);
+  background:rgba(232,86,138,.1);padding:5px 16px;border-radius:var(--radius-full);
+  margin-bottom:16px;position:relative;z-index:1;
+}
+.about-desc{font-size:16px;color:var(--text-secondary);margin-bottom:24px;position:relative;z-index:1}
+.about-badges{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;position:relative;z-index:1}
+.about-badge{
+  font-size:12px;font-weight:600;color:var(--sakura-700);
+  background:rgba(232,86,138,.08);padding:6px 14px;border-radius:var(--radius-full);
+  border:1px solid rgba(232,86,138,.12);
+}
+.about-links{
+  display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;
+}
+.about-link-card{
+  background:var(--glass-bg);backdrop-filter:var(--glass-blur);-webkit-backdrop-filter:var(--glass-blur);
+  border-radius:var(--radius-lg);padding:24px;
+  box-shadow:var(--shadow-sm);border:1px solid var(--glass-border);
+  text-decoration:none;color:var(--text);transition:var(--transition);
+  display:flex;flex-direction:column;gap:6px;
+}
+.about-link-card:hover{
+  transform:translateY(-4px);box-shadow:var(--shadow-md);
+  border-color:var(--border-strong);
+}
+.about-link-title{font-size:15px;font-weight:600;color:var(--text)}
+.about-link-desc{font-size:13px;color:var(--text-secondary)}
+
 /* ========== OVERLAY FOR MOBILE ========== */
 .sidebar-overlay{
   display:none;position:fixed;inset:0;
@@ -564,6 +632,12 @@ body{
     </button>
     <button class="nav-item" data-page="settings" onclick="switchPage('settings',this)">
       <span>设置</span>
+    </button>
+    <button class="nav-item" data-page="api-token" onclick="switchPage('api-token',this)">
+      <span>API 令牌</span>
+    </button>
+    <button class="nav-item" data-page="about" onclick="switchPage('about',this)">
+      <span>关于</span>
     </button>
   </nav>
   <div class="sidebar-footer">
@@ -699,6 +773,105 @@ body{
     </div>
   </div>
 
+  <!-- ===== API TOKEN PAGE ===== -->
+  <div class="page-content hidden" id="page-api-token">
+    <div class="page-header">
+      <div><div class="page-title">API 令牌</div><div class="page-subtitle">查看与管理认证令牌</div></div>
+    </div>
+
+    <div class="content-section">
+      <div class="section-title">当前 Token</div>
+      <div class="card" style="padding:28px">
+        <div class="token-display">
+          <div class="token-label">服务端 Token</div>
+          <div class="token-value-box">
+            <input type="password" id="apiTokenValue" readonly value="">
+            <button class="btn btn-secondary" onclick="toggleTokenVisibility()" id="tokenToggleBtn">显示</button>
+            <button class="btn btn-primary" onclick="copyToken()">复制</button>
+          </div>
+          <p class="token-hint">此 Token 用于客户端与服务端之间的 HMAC 认证，请妥善保管。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="content-section">
+      <div class="section-title">API 端点</div>
+      <div class="card">
+        <table class="data-table">
+          <thead>
+            <tr><th>端点</th><th>方法</th><th>说明</th><th>认证</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><code>/api/status</code></td><td>GET</td><td>服务器状态</td><td><span class="badge badge-success">Cookie</span></td></tr>
+            <tr><td><code>/api/proxies</code></td><td>GET</td><td>获取所有代理列表</td><td><span class="badge badge-success">Cookie</span></td></tr>
+            <tr><td><code>/api/clients</code></td><td>GET</td><td>获取已连接客户端列表</td><td><span class="badge badge-success">Cookie</span></td></tr>
+            <tr><td><code>/api/logs</code></td><td>GET</td><td>获取最近系统日志</td><td><span class="badge badge-success">Cookie</span></td></tr>
+            <tr><td><code>/api/security</code></td><td>GET</td><td>获取安全设置</td><td><span class="badge badge-success">Cookie</span></td></tr>
+            <tr><td><code>/api/login</code></td><td>POST</td><td>登录认证</td><td><span class="badge badge-info">密码</span></td></tr>
+            <tr><td><code>/api/logout</code></td><td>POST</td><td>退出登录</td><td><span class="badge badge-success">Cookie</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== ABOUT PAGE ===== -->
+  <div class="page-content hidden" id="page-about">
+    <div class="page-header">
+      <div><div class="page-title">关于 NexusLink</div><div class="page-subtitle">项目信息与版本详情</div></div>
+    </div>
+
+    <div class="content-section">
+      <div class="about-card">
+        <div class="about-logo">NexusLink</div>
+        <div class="about-version" id="aboutVersion">v0.3.3</div>
+        <div class="about-desc">高性能、安全的内网穿透工具</div>
+        <div class="about-badges">
+          <span class="about-badge">TCP/UDP</span>
+          <span class="about-badge">HMAC-SHA256</span>
+          <span class="about-badge">Sakura UI</span>
+          <span class="about-badge">Go</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="content-section">
+      <div class="section-title">项目信息</div>
+      <div class="card">
+        <table class="data-table">
+          <tbody>
+            <tr><td style="width:140px;color:var(--text-secondary);font-weight:600">项目名称</td><td>NexusLink</td></tr>
+            <tr><td style="color:var(--text-secondary);font-weight:600">版本</td><td id="aboutVersionDetail">v0.3.3</td></tr>
+            <tr><td style="color:var(--text-secondary);font-weight:600">开发语言</td><td>Go 1.22+</td></tr>
+            <tr><td style="color:var(--text-secondary);font-weight:600">开源协议</td><td>MIT License</td></tr>
+            <tr><td style="color:var(--text-secondary);font-weight:600">界面主题</td><td>Sakura UI</td></tr>
+            <tr><td style="color:var(--text-secondary);font-weight:600">认证机制</td><td>HMAC-SHA256 逐包认证</td></tr>
+            <tr><td style="color:var(--text-secondary);font-weight:600">支持协议</td><td>TCP / UDP</td></tr>
+            <tr><td style="color:var(--text-secondary);font-weight:600">支持平台</td><td>Linux (amd64 / arm64 / armv7) / Windows (amd64 / arm64)</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="content-section">
+      <div class="section-title">相关链接</div>
+      <div class="about-links">
+        <a href="https://github.com/YSD-build/NexusLink" target="_blank" class="about-link-card">
+          <div class="about-link-title">GitHub 仓库</div>
+          <div class="about-link-desc">查看源码与提交 Issue</div>
+        </a>
+        <a href="https://github.com/YSD-build/NexusLink/releases" target="_blank" class="about-link-card">
+          <div class="about-link-title">Releases</div>
+          <div class="about-link-desc">下载最新版本</div>
+        </a>
+        <a href="https://github.com/YSD-build/NexusLink/wiki" target="_blank" class="about-link-card">
+          <div class="about-link-title">Wiki 文档</div>
+          <div class="about-link-desc">使用指南与 API 文档</div>
+        </a>
+      </div>
+    </div>
+  </div>
+
 </main>
 
 <!-- ========== LOGIN OVERLAY ========== -->
@@ -761,6 +934,8 @@ function switchPage(page, el) {
   else if (page === 'proxies') renderProxiesPage();
   else if (page === 'logs') fetchLogs();
   else if (page === 'settings') fetchSecurity();
+  else if (page === 'api-token') loadTokenInfo();
+  else if (page === 'about') updateAboutInfo();
 }
 
 // ==================== AUTH ====================
@@ -972,6 +1147,60 @@ function renderSecurity(data) {
   });
   html += '</div>';
   container.innerHTML = html;
+}
+
+// ==================== API TOKEN PAGE ====================
+let tokenVisible = false;
+async function loadTokenInfo() {
+  try {
+    const r = await fetch('/api/security', { credentials: 'same-origin' });
+    const d = await r.json();
+    const data = d.data || d;
+    const tokenInput = document.getElementById('apiTokenValue');
+    if (data.token) {
+      tokenInput.value = data.token;
+    } else {
+      tokenInput.value = '暂无 Token 信息';
+    }
+    tokenVisible = false;
+    tokenInput.type = 'password';
+    document.getElementById('tokenToggleBtn').textContent = '显示';
+  } catch(e) {
+    document.getElementById('apiTokenValue').value = '加载失败';
+  }
+}
+function toggleTokenVisibility() {
+  const input = document.getElementById('apiTokenValue');
+  const btn = document.getElementById('tokenToggleBtn');
+  tokenVisible = !tokenVisible;
+  input.type = tokenVisible ? 'text' : 'password';
+  btn.textContent = tokenVisible ? '隐藏' : '显示';
+}
+function copyToken() {
+  const input = document.getElementById('apiTokenValue');
+  if (!input.value || input.value === '暂无 Token 信息' || input.value === '加载失败') return;
+  navigator.clipboard.writeText(input.value).then(() => {
+    const btn = event.target;
+    const original = btn.textContent;
+    btn.textContent = '已复制';
+    btn.style.background = 'linear-gradient(135deg,rgba(76,175,80,.8),rgba(76,175,80,.9))';
+    setTimeout(() => {
+      btn.textContent = original;
+      btn.style.background = '';
+    }, 1500);
+  }).catch(() => {
+    input.type = 'text';
+    input.select();
+    document.execCommand('copy');
+    input.type = tokenVisible ? 'text' : 'password';
+  });
+}
+
+// ==================== ABOUT PAGE ====================
+function updateAboutInfo() {
+  const version = statusData && statusData.version ? statusData.version : 'v0.3.3';
+  document.getElementById('aboutVersion').textContent = version;
+  document.getElementById('aboutVersionDetail').textContent = version;
 }
 
 // ==================== UTILS ====================
