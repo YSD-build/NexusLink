@@ -38,13 +38,15 @@ curl -fsSL https://github.com/YSD-build/NexusLink/raw/main/scripts/install-nexus
 ---
 ## 📦 下载安装
 所有资产发布在 **[v0.3.4 Release](https://github.com/YSD-build/NexusLink/releases/tag/v0.3.4)**。
-### 🖥️ 服务端（4 架构）
+### 🖥️ 服务端（6 架构）
 | 架构 | 文件名 | 适用设备 |
 |------|--------|----------|
-| x86_64 | `nexuslink-server-v0.3.4-linux-x86_64` | PC、云服务器、虚拟机 |
-| **ARM64** | `nexuslink-server-v0.3.4-linux-armv8` | ✅ ARM 服务器、树莓派 4/5 |
-| ARMv7 | `nexuslink-server-v0.3.4-linux-armv7` | 路由器、树莓派 2/3 |
-| ARMv6 | `nexuslink-server-v0.3.4-linux-armv6` | 旧嵌入式设备 |
+| linux-x86_64 | `nexuslink-server-v0.3.4-linux-x86_64` | PC、云服务器、虚拟机 |
+| **linux-arm64** | `nexuslink-server-v0.3.4-linux-armv8` | ✅ ARM 服务器、树莓派 4/5 |
+| linux-armv7 | `nexuslink-server-v0.3.4-linux-armv7` | 路由器、树莓派 2/3 |
+| linux-armv6 | `nexuslink-server-v0.3.4-linux-armv6` | 旧嵌入式设备 |
+| windows-x86_64 | `nexuslink-server-v0.3.4-windows-x86_64.exe` | Windows PC (x64) |
+| windows-arm64 | `nexuslink-server-v0.3.4-windows-arm64.exe` | Windows ARM (骁龙 X) |
 ### 📱 客户端（6 版本）
 | 架构 | 文件名 | 适用设备 |
 |------|--------|----------|
