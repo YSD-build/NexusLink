@@ -21,7 +21,7 @@ import (
 	"nexuslink/pkg/protocol"
 )
 
-var Version = "v0.3.3"
+var Version = "v0.3.4"
 
 var (
 	configFile = flag.String("c", "client.yaml", "config file path")

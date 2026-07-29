@@ -2,7 +2,7 @@
 chcp 65001 >nul 2>&1
 title NexusLink Client
 echo ========================================
-echo   NexusLink Client v0.3.3
+echo   NexusLink Client v0.3.4
 echo ========================================
 echo.
 

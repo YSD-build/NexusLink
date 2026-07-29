@@ -2,7 +2,7 @@
 chcp 65001 >nul 2>&1
 title NexusLink Server
 echo ========================================
-echo   NexusLink Server v0.3.3
+echo   NexusLink Server v0.3.4
 echo ========================================
 echo.
 

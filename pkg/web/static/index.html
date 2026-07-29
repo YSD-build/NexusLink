@@ -618,7 +618,7 @@ body{
 <aside class="sidebar" id="sidebar">
   <div class="sidebar-brand">
     <span class="logo-text">NexusLink</span>
-    <span class="logo-version" id="sidebarVersion">v0.3.3</span>
+    <span class="logo-version" id="sidebarVersion">v0.3.4</span>
   </div>
   <nav class="sidebar-nav">
     <button class="nav-item active" data-page="dashboard" onclick="switchPage('dashboard',this)">
@@ -676,7 +676,7 @@ body{
         <div class="stat-line"></div>
       </div>
       <div class="stat-card fadeIn">
-        <div class="stat-value" id="statVersion">v0.3.3</div>
+        <div class="stat-value" id="statVersion">v0.3.4</div>
         <div class="stat-label">服务端版本</div>
         <div class="stat-change" style="color:var(--text-secondary)">运行中</div>
         <div class="stat-line"></div>
@@ -699,7 +699,7 @@ body{
             <tr><td style="color:var(--text-secondary);font-weight:600">监听端口</td><td id="infoBindPort">--</td></tr>
             <tr><td style="color:var(--text-secondary);font-weight:600">客户端数</td><td id="infoClients">0</td></tr>
             <tr><td style="color:var(--text-secondary);font-weight:600">代理数</td><td id="infoProxies">0</td></tr>
-            <tr><td style="color:var(--text-secondary);font-weight:600">版本号</td><td id="infoVersion">v0.3.3</td></tr>
+            <tr><td style="color:var(--text-secondary);font-weight:600">版本号</td><td id="infoVersion">v0.3.4</td></tr>
             <tr><td style="color:var(--text-secondary);font-weight:600">启动时间</td><td id="infoStartTime">--</td></tr>
             <tr><td style="color:var(--text-secondary);font-weight:600">运行时长</td><td id="infoUptime">--</td></tr>
           </tbody>
@@ -824,7 +824,7 @@ body{
     <div class="content-section">
       <div class="about-card">
         <div class="about-logo">NexusLink</div>
-        <div class="about-version" id="aboutVersion">v0.3.3</div>
+        <div class="about-version" id="aboutVersion">v0.3.4</div>
         <div class="about-desc">高性能、安全的内网穿透工具</div>
         <div class="about-badges">
           <span class="about-badge">TCP/UDP</span>
@@ -841,7 +841,7 @@ body{
         <table class="data-table">
           <tbody>
             <tr><td style="width:140px;color:var(--text-secondary);font-weight:600">项目名称</td><td>NexusLink</td></tr>
-            <tr><td style="color:var(--text-secondary);font-weight:600">版本</td><td id="aboutVersionDetail">v0.3.3</td></tr>
+            <tr><td style="color:var(--text-secondary);font-weight:600">版本</td><td id="aboutVersionDetail">v0.3.4</td></tr>
             <tr><td style="color:var(--text-secondary);font-weight:600">开发语言</td><td>Go 1.22+</td></tr>
             <tr><td style="color:var(--text-secondary);font-weight:600">开源协议</td><td>MIT License</td></tr>
             <tr><td style="color:var(--text-secondary);font-weight:600">界面主题</td><td>Sakura UI</td></tr>
@@ -1030,16 +1030,16 @@ function updateDashboardStats() {
   const s = statusData || {};
   document.getElementById('statClients').textContent = s.clientCount || 0;
   document.getElementById('statProxies').textContent = s.proxyCount || 0;
-  document.getElementById('statVersion').textContent = s.version || 'v0.3.3';
+  document.getElementById('statVersion').textContent = s.version || 'v0.3.4';
   document.getElementById('statUptime').textContent = s.uptime || '--';
   document.getElementById('statStartTime').textContent = s.startTime || '--';
-  document.getElementById('sidebarVersion').textContent = s.version || 'v0.3.3';
+  document.getElementById('sidebarVersion').textContent = s.version || 'v0.3.4';
   
   document.getElementById('infoBindAddr').textContent = s.bindAddr || '--';
   document.getElementById('infoBindPort').textContent = s.bindPort || '--';
   document.getElementById('infoClients').textContent = s.clientCount || 0;
   document.getElementById('infoProxies').textContent = s.proxyCount || 0;
-  document.getElementById('infoVersion').textContent = s.version || 'v0.3.3';
+  document.getElementById('infoVersion').textContent = s.version || 'v0.3.4';
   document.getElementById('infoStartTime').textContent = s.startTime || '--';
   document.getElementById('infoUptime').textContent = s.uptime || '--';
 }
@@ -1198,7 +1198,7 @@ function copyToken() {
 
 // ==================== ABOUT PAGE ====================
 function updateAboutInfo() {
-  const version = statusData && statusData.version ? statusData.version : 'v0.3.3';
+  const version = statusData && statusData.version ? statusData.version : 'v0.3.4';
   document.getElementById('aboutVersion').textContent = version;
   document.getElementById('aboutVersionDetail').textContent = version;
 }

@@ -33,36 +33,36 @@ curl -fsSL https://github.com/YSD-build/NexusLink/raw/main/scripts/install-nexus
 - 📜 **GPL-3.0 开源**
 ---
 ## 📌 当前版本
-**v0.3.1** — 修复 TCP/UDP 穿透阻断（数据通道与控制通道解耦），并加固数据安全（恒时比较、Web 限流、XFF 收敛、会话清理 5min）。
+**v0.3.4** — Web 管理面板新增「API 令牌」与「关于」页面，完善面板信息展示。
 > 下载与资产见下方「下载安装」。历史说明见 [Releases](https://github.com/YSD-build/NexusLink/releases)。
 ---
 ## 📦 下载安装
-所有资产发布在 **[v0.3.1 Release](https://github.com/YSD-build/NexusLink/releases/tag/v0.3.1)**。
+所有资产发布在 **[v0.3.4 Release](https://github.com/YSD-build/NexusLink/releases/tag/v0.3.4)**。
 ### 🖥️ 服务端（4 架构）
 | 架构 | 文件名 | 适用设备 |
 |------|--------|----------|
-| x86_64 | `nexuslink-server-v0.3.1-linux-x86_64` | PC、云服务器、虚拟机 |
-| **ARM64** | `nexuslink-server-v0.3.1-linux-armv8` | ✅ ARM 服务器、树莓派 4/5 |
-| ARMv7 | `nexuslink-server-v0.3.1-linux-armv7` | 路由器、树莓派 2/3 |
-| ARMv6 | `nexuslink-server-v0.3.1-linux-armv6` | 旧嵌入式设备 |
+| x86_64 | `nexuslink-server-v0.3.4-linux-x86_64` | PC、云服务器、虚拟机 |
+| **ARM64** | `nexuslink-server-v0.3.4-linux-armv8` | ✅ ARM 服务器、树莓派 4/5 |
+| ARMv7 | `nexuslink-server-v0.3.4-linux-armv7` | 路由器、树莓派 2/3 |
+| ARMv6 | `nexuslink-server-v0.3.4-linux-armv6` | 旧嵌入式设备 |
 ### 📱 客户端（6 版本）
 | 架构 | 文件名 | 适用设备 |
 |------|--------|----------|
-| **android-arm64** | `nexuslink-client-v0.3.1-android-arm64` | ✅ 骁龙、天玑、绝大多数安卓手机（Termux 无 Root） |
-| linux-x86_64 | `nexuslink-client-v0.3.1-linux-x86_64` | PC、虚拟机 |
-| linux-armv8 | `nexuslink-client-v0.3.1-linux-armv8` | ARM 服务器、树莓派 |
-| linux-armv7 | `nexuslink-client-v0.3.1-linux-armv7` | 路由器 |
-| linux-armv6 | `nexuslink-client-v0.3.1-linux-armv6` | 旧嵌入式设备 |
-| windows-x86_64 | `nexuslink-client-v0.3.1-windows-x86_64.exe` | Windows PC |
+| **android-arm64** | `nexuslink-client-v0.3.4-android-arm64` | ✅ 骁龙、天玑、绝大多数安卓手机（Termux 无 Root） |
+| linux-x86_64 | `nexuslink-client-v0.3.4-linux-x86_64` | PC、虚拟机 |
+| linux-armv8 | `nexuslink-client-v0.3.4-linux-armv8` | ARM 服务器、树莓派 |
+| linux-armv7 | `nexuslink-client-v0.3.4-linux-armv7` | 路由器 |
+| linux-armv6 | `nexuslink-client-v0.3.4-linux-armv6` | 旧嵌入式设备 |
+| windows-x86_64 | `nexuslink-client-v0.3.4-windows-x86_64.exe` | Windows PC |
 ### 🌐 Web 面板
-`nexuslink-web-panel-v0.3.1.zip` — 独立 Node.js 版管理面板（已内置 x86_64 二进制）。服务端二进制本身也已内置面板，直接访问 `web_addr:web_port` 即可。
+`nexuslink-web-panel-v0.3.4.zip` — 独立 Node.js 版管理面板（已内置 x86_64 二进制）。服务端二进制本身也已内置面板，直接访问 `web_addr:web_port` 即可。
 ---
 ## 🚀 快速开始
 ### 1️⃣ 服务端部署（公网服务器）
 ```bash
 # 以 ARM64 为例
-wget https://github.com/YSD-build/NexusLink/releases/download/v0.3.1/nexuslink-server-v0.3.1-linux-armv8
-chmod +x nexuslink-server-v0.3.1-linux-armv8
+wget https://github.com/YSD-build/NexusLink/releases/download/v0.3.4/nexuslink-server-v0.3.4-linux-armv8
+chmod +x nexuslink-server-v0.3.4-linux-armv8
 ```
 **`server.yaml`：**
 ```yaml
@@ -75,10 +75,10 @@ web_port: 7001
 web_password: admin123
 # web_trust_proxy: false   # 仅当服务端部署在可信反向代理后才设 true，才用 X-Forwarded-For 取客户端 IP
 ```
-**运行：** `./nexuslink-server-v0.3.1-linux-armv8 -c server.yaml`
+**运行：** `./nexuslink-server-v0.3.4-linux-armv8 -c server.yaml`
 正常输出：
 ```
-NexusLink Server v0.3.1 starting...
+NexusLink Server v0.3.4 starting...
 Listening on 0.0.0.0:7000
 ```
 ### 2️⃣ 客户端配置（内网机器 / 手机）
@@ -101,10 +101,10 @@ proxies:
     localaddr: 127.0.0.1
     localport: 9000
 ```
-**运行（Linux）：** `./nexuslink-client-v0.3.1-linux-armv8 -c client.yaml`
+**运行（Linux）：** `./nexuslink-client-v0.3.4-linux-armv8 -c client.yaml`
 正常输出：
 ```
-NexusLink Client v0.3.1 starting...
+NexusLink Client v0.3.4 starting...
 Connecting to server 你的IP:7000
 Connected to server successfully
 Registering proxy [mc] type=tcp local=127.0.0.1:25565 remote=25565
@@ -115,9 +115,9 @@ Registering proxy [game_udp] type=udp local=127.0.0.1:9000 remote=25566
 2. 下载 `android-arm64` 版本，Termux 中运行：
    ```bash
    pkg install wget
-   wget https://github.com/YSD-build/NexusLink/releases/download/v0.3.1/nexuslink-client-v0.3.1-android-arm64
-   chmod +x nexuslink-client-v0.3.1-android-arm64
-   ./nexuslink-client-v0.3.1-android-arm64 -c client.yaml
+   wget https://github.com/YSD-build/NexusLink/releases/download/v0.3.4/nexuslink-client-v0.3.4-android-arm64
+   chmod +x nexuslink-client-v0.3.4-android-arm64
+   ./nexuslink-client-v0.3.4-android-arm64 -c client.yaml
    ```
 ---
 ## ⚙️ 配置详解
