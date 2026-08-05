@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -180,10 +181,18 @@ func main() {
 
 	// 启动Web管理面板（默认启用）
 	if cfg.WebEnable || cfg.WebPassword != "" {
+		// 计算 web 设置持久化文件路径（与配置文件同目录）
+		settingsFile := "web_settings.json"
+		if *configFile != "" {
+			if dir := filepath.Dir(*configFile); dir != "." && dir != "" {
+				settingsFile = filepath.Join(dir, "web_settings.json")
+			}
+		}
 		webCfg := &web.WebConfig{
-			Addr:         cfg.WebAddr,
-			Port:         cfg.WebPort,
+			Addr:          cfg.WebAddr,
+			Port:          cfg.WebPort,
 			AdminPassword: cfg.WebPassword,
+			SettingsFile:  settingsFile,
 		}
 		server.webServer = web.NewWebServer(webCfg, server)
 		if err := server.webServer.Start(); err != nil {
