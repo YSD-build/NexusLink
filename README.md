@@ -68,7 +68,7 @@ docker run -d --name nexuslink \
   -v /path/to/server.yaml:/app/server.yaml \
   ghcr.io/ysd-build/nexuslink:latest
 ```
-> 版本化镜像：`ghcr.io/ysd-build/nexuslink:v0.3.5`（`v*` tag 自动触发构建发布）。默认配置见 `docker/server.yaml`。
+> 版本化镜像：`ghcr.io/ysd-build/nexuslink:0.3.5`（`v*` tag 自动触发构建发布）。默认配置见 `docker/server.yaml`。
 ---
 ## 🚀 快速开始
 ### 1️⃣ 服务端部署（公网服务器）
