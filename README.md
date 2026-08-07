@@ -19,6 +19,11 @@ curl -fsSL https://github.com/YSD-build/NexusLink/raw/main/scripts/install-nexus
 脚本自动检测架构、下载对应二进制、生成配置文件并创建系统服务。所有资产见下方 Release。
 ---
 # NexusLink · 高性能带认证内网穿透
+![Version](https://img.shields.io/badge/version-v0.3.5-4f6ef7)
+![Docker](https://img.shields.io/badge/docker-ghcr.io%2Fysd-build%2Fnexuslink-blue?logo=docker)
+![Platform](https://img.shields.io/badge/platform-Linux%2FWindows%2FAndroid%2FARM-green)
+![License](https://img.shields.io/badge/license-GPL-3.0-green)
+
 > 类似 FRP，但**每个数据包都带 HMAC-SHA256 认证**（防篡改、防重放），纯 Go 静态编译、无运行时依赖。
 > 支持 **TCP / UDP** 穿透，内置 Web 管理面板，跨平台（x86 / ARM / Android / Windows）。
 ---
@@ -29,16 +34,18 @@ curl -fsSL https://github.com/YSD-build/NexusLink/raw/main/scripts/install-nexus
 - 🌐 **TCP + UDP 双协议**：UDP 采用独立数据通道 + session 多路复用
 - 🚧 **连接守卫 ConnGuard**：单 IP 连接数/频率限制，异常行为自动封禁
 - 📦 **零依赖**：纯 Go 编译，单文件二进制，跨平台
-- 🖥️ **Web 管理面板**：状态 / 配置 / 日志 / 代理管理，登录失败锁定 + CSRF 防护
+- 🖥️ **Web 管理面板**：状态 / 配置 / 日志 / 隧道管理，登录失败锁定 + CSRF 防护
+- ⚙️ **安全中心可调**：会话超时 / 失败锁定阈值 / 防护开关 / 自定义 CSP，实时生效
+- 🤖 **AI 智能巡查**：接入 OpenAI 兼容 API 定时安全巡检，异常自动 Webhook 告警
 - 📜 **GPL-3.0 开源**
 ---
 ## 📌 当前版本
 **v0.3.5** — Web 管理面板安全中心全面升级：可调安全策略 + AI 定时巡查 + Webhook 告警 + 实时安全监控；侧边栏固定并去除图标。
 **v0.3.4** — Web 管理面板新增「API 令牌」与「关于」页面，完善面板信息展示。
-> 下载与资产见下方「下载安装」。历史说明见 [Releases](https://github.com/YSD-build/NexusLink/releases)。
+> 下载与资产见下方「下载安装」。历史说明见 [Releases](https://github.com/YSD-build/NexusLink/releases)。📚 详细文档见 [Wiki](https://github.com/YSD-build/NexusLink/wiki)。
 ---
 ## 📦 下载安装
-所有资产发布在 **[v0.3.4 Release](https://github.com/YSD-build/NexusLink/releases/tag/v0.3.5)**。
+所有资产发布在 **[v0.3.5 Release](https://github.com/YSD-build/NexusLink/releases/tag/v0.3.5)**。
 ### 🖥️ 服务端（6 架构）
 | 架构 | 文件名 | 适用设备 |
 |------|--------|----------|
@@ -168,10 +175,12 @@ Registering proxy [game_udp] type=udp local=127.0.0.1:9000 remote=25566
 - 连接频率限制，超限自动封禁
 - 协议层畸形包（非法魔数 / 超长 length / 非法类型）在分配内存前即拒绝
 ### Web 面板防护
-- 登录失败锁定（连续 5 次错误后锁定）
+- 登录失败锁定（阈值与时长可在安全中心调整）
 - 登录请求体限制 1MB（`MaxBytesReader`），防 OOM
-- `HttpOnly` + `SameSite=Strict` Cookie + CSRF Token
+- `HttpOnly` + `SameSite=Strict` Cookie + CSRF Token（可开关）
 - 受保护 API 未授权返回 401；`/api/config` 不泄露 token
+- **安全中心**：安全策略可调、实时会话 / IP 锁定监控与一键解锁、安全事件审计
+- **AI 智能巡查**：定时调用 OpenAI 兼容接口巡检日志，warn/danger 触发 Webhook 告警
 ---
 ## 💡 使用示例
 ### 穿透 Minecraft 服务器（TCP）
