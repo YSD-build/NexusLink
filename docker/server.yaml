@@ -1,0 +1,9 @@
+# NexusLink 服务端 Docker 默认配置
+# 生产部署请通过挂载卷覆盖此文件：docker run -v /path/server.yaml:/app/server.yaml ...
+bind_addr: 0.0.0.0
+bind_port: 7000
+token: change_me_before_use
+web_enable: true
+web_addr: 0.0.0.0
+web_port: 7001
+web_password: admin123

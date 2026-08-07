@@ -1,0 +1,12 @@
+.git
+.github
+bin
+test
+web
+docs
+scripts
+*.md
+*.log
+*.zip
+Dockerfile
+docker/README.md
