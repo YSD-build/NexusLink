@@ -59,6 +59,16 @@ curl -fsSL https://github.com/YSD-build/NexusLink/raw/main/scripts/install-nexus
 | windows-x86_64 | `nexuslink-client-v0.3.5-windows-x86_64.exe` | Windows PC |
 ### 🌐 Web 面板
 `nexuslink-web-panel-v0.3.5.zip` — 独立 Node.js 版管理面板（已内置 x86_64 二进制）。服务端二进制本身也已内置面板，直接访问 `web_addr:web_port` 即可。
+### 🐳 Docker 部署
+镜像托管于 **ghcr.io**（自动构建多架构：linux/amd64、linux/arm64、linux/arm/v7）：
+```bash
+# 使用默认配置（生产环境请挂载自己的 server.yaml 覆盖默认配置）
+docker run -d --name nexuslink \
+  -p 7000:7000 -p 7001:7001 \
+  -v /path/to/server.yaml:/app/server.yaml \
+  ghcr.io/ysd-build/nexuslink:latest
+```
+> 版本化镜像：`ghcr.io/ysd-build/nexuslink:v0.3.5`（`v*` tag 自动触发构建发布）。默认配置见 `docker/server.yaml`。
 ---
 ## 🚀 快速开始
 ### 1️⃣ 服务端部署（公网服务器）
