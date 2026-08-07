@@ -57,3 +57,12 @@ jobs:
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
           tags: ${{ steps.meta.outputs.tags }}
+
+      - name: 设置包公开可见
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh api --method POST \
+            -f visibility=public \
+            /user/packages/container/nexuslink/visibility \
+            && echo "包已设为公开" || echo "包可见性设置跳过（可手动在包设置页调整）"
