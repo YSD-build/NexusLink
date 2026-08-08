@@ -183,6 +183,35 @@ Registering proxy [game_udp] type=udp local=127.0.0.1:9000 remote=25566
 - **安全中心**：安全策略可调、实时会话 / IP 锁定监控与一键解锁、安全事件审计、在线修改管理密码（成功后强制重登）
 - **AI 智能巡查**：定时调用 OpenAI 兼容接口巡检日志，warn/danger 触发 Webhook 告警；巡查历史持久化，重启不丢失
 ---
+## 🔒 可选增强（TLS / ACL / 流量统计）
+
+### HTTPS Web 面板 与 隧道 TLS
+```yaml
+# server.yaml
+web_tls_cert: /etc/nexuslink/cert.pem   # 配置后 Web 面板启用 HTTPS
+web_tls_key:  /etc/nexuslink/key.pem
+bind_tls_cert: /etc/nexuslink/cert.pem  # 配置后隧道控制通道 + TCP 数据通道启用 TLS
+bind_tls_key:  /etc/nexuslink/key.pem   # （UDP 数据通道仍为明文，应用层 HMAC 认证）
+```
+```yaml
+# client.yaml（隧道 TLS 时开启）
+tls_enable: true
+tls_ca: /path/ca.pem      # 可选：服务端 CA 证书
+tls_insecure: true        # 可选：自签证书场景跳过校验
+```
+
+### 代理创建 ACL
+限制客户端可创建的代理（全部为空时不限制）：
+```yaml
+# server.yaml
+proxy_acl:
+  allow_names: ["^web-.*"]     # 代理名正则白名单
+  allow_ports: [7001, 9000]    # 允许的远程端口
+```
+
+### 流量统计
+Web 面板「代理 / 隧道列表」实时显示每个隧道的收发流量（TCP，内存统计）。
+
 ## 💡 使用示例
 ### 穿透 Minecraft 服务器（TCP）
 ```yaml

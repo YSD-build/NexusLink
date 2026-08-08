@@ -557,11 +557,12 @@
                                     <th>代理名称</th>
                                     <th>类型</th>
                                     <th>远程端口</th>
+                                    <th>流量</th>
                                     <th>状态</th>
                                 </tr>
                             </thead>
                             <tbody id="proxyTableBody">
-                                <tr><td colspan="4" class="empty">暂无代理</td></tr>
+                                <tr><td colspan="5" class="empty">暂无代理</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -583,11 +584,12 @@
                                     <th>远程端口</th>
                                     <th>本地地址</th>
                                     <th>本地端口</th>
+                                    <th>流量</th>
                                     <th>状态</th>
                                 </tr>
                             </thead>
                             <tbody id="proxyTableBodyFull">
-                                <tr><td colspan="6" class="empty">暂无代理</td></tr>
+                                <tr><td colspan="7" class="empty">暂无代理</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -939,6 +941,7 @@
                     <td>${p.name}</td>
                     <td>${p.type ? p.type.toUpperCase() : 'TCP'}</td>
                     <td>${p.remotePort || '--'}</td>
+                    <td>${fmtBytes(p.bytesIn)} ↑ / ${fmtBytes(p.bytesOut)} ↓</td>
                     <td><span class="status-badge ${p.active ? 'active' : 'inactive'}">${p.active ? '运行中' : '未激活'}</span></td>
                 </tr>
             `).join('');
@@ -951,6 +954,7 @@
                     <td>${p.remotePort || '--'}</td>
                     <td>${p.localAddr || '--'}</td>
                     <td>${p.localPort || '--'}</td>
+                    <td>${fmtBytes(p.bytesIn)} ↑ / ${fmtBytes(p.bytesOut)} ↓</td>
                     <td><span class="status-badge ${p.active ? 'active' : 'inactive'}">${p.active ? '运行中' : '未激活'}</span></td>
                 </tr>
             `).join('');
@@ -1149,6 +1153,14 @@
             document.querySelectorAll('#patrolFilters .filter-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
             loadAIPatrol();
+        }
+
+        function fmtBytes(b) {
+            if (!b) return '0B';
+            const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+            let i = 0, v = b;
+            while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
+            return v.toFixed(v >= 100 || i === 0 ? 0 : 1) + units[i];
         }
 
         function levelText(l) {

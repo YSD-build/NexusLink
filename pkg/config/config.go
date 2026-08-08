@@ -19,6 +19,17 @@ type ServerConfig struct {
 	WebPort     int    `yaml:"web_port"`
 	WebPassword string `yaml:"web_password"`
 	WebTrustProxy bool   `yaml:"web_trust_proxy"` // 仅当部署在可信反向代理后才设 true，才用 X-Forwarded-For 取客户端IP
+	WebTLSCert    string `yaml:"web_tls_cert"`   // Web 面板 HTTPS 证书（可选，配置即启用 HTTPS）
+	WebTLSKey     string `yaml:"web_tls_key"`
+	BindTLSCert   string `yaml:"bind_tls_cert"`  // 隧道 TLS 证书（可选，配置即启用；UDP 数据通道仍为明文）
+	BindTLSKey    string `yaml:"bind_tls_key"`
+	ProxyACL      ProxyACL `yaml:"proxy_acl"`   // 代理创建访问控制
+}
+
+// ProxyACL 代理创建访问控制（全部为空时不限制）
+type ProxyACL struct {
+	AllowNames []string `yaml:"allow_names"` // 代理名正则，匹配才允许
+	AllowPorts []int    `yaml:"allow_ports"` // 允许的远程端口，空=不限
 }
 
 // ProxyConfig 单个代理配置
@@ -31,10 +42,13 @@ type ProxyConfig struct {
 
 // ClientConfig 客户端配置
 type ClientConfig struct {
-	ServerIP   string                 `yaml:"server_ip"`
-	ServerPort int                    `yaml:"server_port"`
-	Token      string                 `yaml:"token"`
-	Proxies    map[string]ProxyConfig `yaml:"proxies"`
+	ServerIP    string                 `yaml:"server_ip"`
+	ServerPort  int                    `yaml:"server_port"`
+	Token       string                 `yaml:"token"`
+	TLSEnable   bool                   `yaml:"tls_enable"`   // 使用 TLS 连接服务端
+	TLSCA       string                 `yaml:"tls_ca"`       // 服务端 CA 证书路径（可选）
+	TLSInsecure bool                   `yaml:"tls_insecure"` // 跳过证书校验（自签证书场景）
+	Proxies     map[string]ProxyConfig `yaml:"proxies"`
 }
 
 // LoadServerConfig 加载服务端配置

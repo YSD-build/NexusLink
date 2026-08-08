@@ -3,12 +3,14 @@ package main
 
 import (
 	"crypto/subtle"
+	"crypto/tls"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"net"
 	"path/filepath"
+	"regexp"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -43,6 +45,8 @@ type Proxy struct {
 	ClientConn net.Conn
 	Active     bool
 	Owner      string // 所属客户端 ID，断开时只清理本客户端代理（多客户端隔离）
+	BytesIn    int64  // 入站字节（TCP，atomic）
+	BytesOut   int64  // 出站字节（TCP，atomic）
 
 	// TCP 独立数据通道（与控制通道解耦）
 	DataListener net.Listener
@@ -69,6 +73,7 @@ type Server struct {
 	clients   map[string]net.Conn // 多客户端支持：clientID -> 控制连接
 	webServer *web.WebServer
 	connGuard *security.ConnGuard // 第一防：连接守卫
+	tlsConf   *tls.Config       // 隧道 TLS（配置证书后非空）
 	mu        sync.RWMutex
 	startTime time.Time
 }
@@ -85,6 +90,8 @@ func (s *Server) GetProxies() []web.ProxyInfo {
 			Type:       string(p.Type),
 			RemotePort: p.RemotePort,
 			Active:     p.Active,
+			BytesIn:    atomic.LoadInt64(&p.BytesIn),
+			BytesOut:   atomic.LoadInt64(&p.BytesOut),
 		})
 	}
 	return proxies
@@ -102,6 +109,8 @@ func (s *Server) GetStatus() web.StatusInfo {
 			Type:       string(p.Type),
 			RemotePort: p.RemotePort,
 			Active:     p.Active,
+			BytesIn:    atomic.LoadInt64(&p.BytesIn),
+			BytesOut:   atomic.LoadInt64(&p.BytesOut),
 		})
 	}
 
@@ -196,6 +205,8 @@ func main() {
 			AdminPassword: cfg.WebPassword,
 			SettingsFile:  settingsFile,
 			PatrolFile:    patrolFile,
+			CertFile:      cfg.WebTLSCert,
+			KeyFile:       cfg.WebTLSKey,
 		}
 		server.webServer = web.NewWebServer(webCfg, server)
 		if err := server.webServer.Start(); err != nil {
@@ -214,6 +225,19 @@ func main() {
 		log.Fatalf("Listen failed: %v", err)
 	}
 	defer ln.Close()
+
+	// 隧道 TLS：配置 bind_tls_cert/key 后启用（控制通道 + TCP 数据通道）
+	var tlsConf *tls.Config
+	if cfg.BindTLSCert != "" && cfg.BindTLSKey != "" {
+		cert, err := tls.LoadX509KeyPair(cfg.BindTLSCert, cfg.BindTLSKey)
+		if err != nil {
+			log.Fatalf("Load TLS cert failed: %v", err)
+		}
+		tlsConf = &tls.Config{Certificates: []tls.Certificate{cert}}
+		ln = tls.NewListener(ln, tlsConf)
+		log.Printf("Tunnel TLS enabled")
+	}
+	server.tlsConf = tlsConf
 
 	for {
 		conn, err := ln.Accept()
@@ -352,6 +376,14 @@ func (s *Server) handleNewProxy(conn net.Conn, msg *protocol.Message, clientID s
 		Success: false,
 	}
 
+	// ACL 校验：代理名/端口是否被允许
+	if !s.proxyAllowed(newProxy.Name, newProxy.RemotePort) {
+		resp.Error = "proxy creation blocked by ACL"
+		protocol.WriteMessage(conn, protocol.TypeNewProxyResp, resp)
+		s.addLogWarn(fmt.Sprintf("代理 [%s] 被 ACL 拒绝 (port=%d)", newProxy.Name, newProxy.RemotePort))
+		return
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -389,6 +421,9 @@ func (s *Server) handleNewProxy(conn net.Conn, msg *protocol.Message, clientID s
 				s.addLog(resp.Error)
 				protocol.WriteMessage(conn, protocol.TypeNewProxyResp, resp)
 				return
+			}
+			if s.tlsConf != nil {
+				dln = tls.NewListener(dln, s.tlsConf)
 			}
 			proxy.DataListener = dln
 			proxy.DataPort = dln.Addr().(*net.TCPAddr).Port
@@ -507,12 +542,12 @@ func (s *Server) handleTCPUserConnection(proxy *Proxy, userConn net.Conn) {
 	defer dataConn.Close()
 
 	// 在独立数据通道上做 HMAC 签名转发（forwardWithAuth 逻辑不变，仅第二参数由控制连接换成数据连接）
-	s.forwardWithAuth(userConn, dataConn, connID)
+	s.forwardWithAuth(userConn, dataConn, connID, proxy)
 	s.addLog(fmt.Sprintf("连接 %s 关闭", connID))
 }
 
 // forwardWithAuth 带认证的数据转发（使用帧格式,解决TCP分包导致的帧同步丢失）
-func (s *Server) forwardWithAuth(userConn, clientConn net.Conn, connID string) {
+func (s *Server) forwardWithAuth(userConn, clientConn net.Conn, connID string, proxy *Proxy) {
 	errChan := make(chan error, 2)
 	bufSize := 32 * 1024
 
@@ -522,6 +557,7 @@ func (s *Server) forwardWithAuth(userConn, clientConn net.Conn, connID string) {
 		for {
 			n, err := userConn.Read(buf)
 			if n > 0 {
+				atomic.AddInt64(&proxy.BytesIn, int64(n))
 				signed := s.auth.SignFramed(buf[:n])
 				_, writeErr := clientConn.Write(signed)
 				if writeErr != nil {
@@ -544,6 +580,7 @@ func (s *Server) forwardWithAuth(userConn, clientConn net.Conn, connID string) {
 				errChan <- err
 				return
 			}
+			atomic.AddInt64(&proxy.BytesOut, int64(len(data)))
 			_, writeErr := userConn.Write(data)
 			if writeErr != nil {
 				errChan <- writeErr
@@ -744,4 +781,38 @@ func (s *Server) acceptDataConnections(proxy *Proxy) {
 			conn.Close() // 无对应等待，关闭
 		}
 	}
+}
+
+
+// proxyAllowed ACL 校验：代理名正则 + 端口白名单（全部为空时不限制）
+func (s *Server) proxyAllowed(name string, port int) bool {
+	acl := s.cfg.ProxyACL
+	if len(acl.AllowNames) == 0 && len(acl.AllowPorts) == 0 {
+		return true
+	}
+	if len(acl.AllowNames) > 0 {
+		ok := false
+		for _, pattern := range acl.AllowNames {
+			if m, _ := regexp.MatchString(pattern, name); m {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return false
+		}
+	}
+	if len(acl.AllowPorts) > 0 {
+		ok := false
+		for _, p := range acl.AllowPorts {
+			if p == port {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			return false
+		}
+	}
+	return true
 }

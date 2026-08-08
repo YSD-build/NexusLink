@@ -2,6 +2,8 @@
 package main
 
 import (
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -9,6 +11,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -240,7 +243,7 @@ func fetchConfigFromAPI(apiAddr, tunnelID, token, apiKey string) (*config.Client
 
 // connect 连接到服务端
 func (c *Client) connect() error {
-	conn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", c.cfg.ServerIP, c.cfg.ServerPort))
+	conn, err := c.dialServer(fmt.Sprintf("%s:%d", c.cfg.ServerIP, c.cfg.ServerPort))
 	if err != nil {
 		return err
 	}
@@ -417,7 +420,7 @@ func (c *Client) handleNewConn(msg *protocol.Message) {
 	}
 
 	// 连接服务端独立 TCP 数据通道（随机端口），发送首帧标识
-	dataConn, err := net.Dial("tcp", fmt.Sprintf("%s:%d", c.cfg.ServerIP, newConn.DataPort))
+	dataConn, err := c.dialServer(fmt.Sprintf("%s:%d", c.cfg.ServerIP, newConn.DataPort))
 	if err != nil {
 		log.Printf("Connect to data port failed: %v", err)
 		localConn.Close()
@@ -728,4 +731,25 @@ func (c *Client) reportTraffic() {
 		atomic.AddInt64(&proxy.BytesOut, -totalBytesOut)
 	}
 	c.mu.RUnlock()
+}
+
+
+// dialServer 连接服务端（支持 TLS：tls_enable 开启；tls_ca 指定 CA；tls_insecure 跳过校验）
+func (c *Client) dialServer(addr string) (net.Conn, error) {
+	if !c.cfg.TLSEnable {
+		return net.Dial("tcp", addr)
+	}
+	tlsCfg := &tls.Config{}
+	if c.cfg.TLSCA != "" {
+		if pem, err := os.ReadFile(c.cfg.TLSCA); err == nil {
+			pool := x509.NewCertPool()
+			if pool.AppendCertsFromPEM(pem) {
+				tlsCfg.RootCAs = pool
+			}
+		}
+	}
+	if c.cfg.TLSInsecure {
+		tlsCfg.InsecureSkipVerify = true
+	}
+	return tls.Dial("tcp", addr, tlsCfg)
 }

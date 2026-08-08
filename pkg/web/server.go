@@ -5,11 +5,6 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
-	"bytes"
-	"io"
-	"os"
-	"strings"
-	"sync/atomic"
 	"embed"
 	"encoding/hex"
 	"encoding/json"
@@ -67,50 +62,11 @@ type WebConfig struct {
 	TrustProxy    bool
 	SettingsFile  string // web_settings.json 持久化路径
 	PatrolFile    string // AI 巡查历史持久化路径（patrol_history.json）
+	CertFile      string // Web 面板 HTTPS 证书（可选，配置即启用 HTTPS）
+	KeyFile       string // Web 面板 HTTPS 私钥
 }
-
-
 
 // SecuritySettings 可调整的安全策略
-type SecuritySettings struct {
-	SessionTimeoutMin int    `json:"session_timeout_min"`
-	RateLimitMax      int    `json:"rate_limit_max"`
-	RateLimitLockMin  int    `json:"rate_limit_lock_min"`
-	CSRFProtection    bool   `json:"csrf_protection"`
-	SecurityHeaders   bool   `json:"security_headers"`
-	HttpOnlyCookie    bool   `json:"httponly_cookie"`
-	SameSiteCookie    bool   `json:"samesite_cookie"`
-	CustomCSP         string `json:"custom_csp"`
-}
-
-// AISettings AI 巡查配置（OpenAI 兼容 /v1/chat/completions）
-type AISettings struct {
-	Enabled     bool   `json:"enabled"`
-	BaseURL     string `json:"base_url"`
-	APIKey      string `json:"api_key"`
-	Model       string `json:"model"`
-	IntervalMin int    `json:"interval_min"`
-	Prompt      string `json:"prompt"`
-	WebhookURL  string `json:"webhook_url"` // 风险告警通知地址（可选）
-}
-
-// WebSettings 持久化设置
-type WebSettings struct {
-	Security           SecuritySettings `json:"security"`
-	AI                 AISettings       `json:"ai"`
-	AdminPasswordHash  string           `json:"admin_password_hash,omitempty"`
-	AdminPasswordSalt  string           `json:"admin_password_salt,omitempty"`
-}
-
-// PatrolResult AI 巡查结果
-type PatrolResult struct {
-	Time    string `json:"time"`
-	Level   string `json:"level"`
-	Summary string `json:"summary"`
-	Details string `json:"details"`
-}
-
-// ProxyManager 代理管理器接口
 type ProxyManager interface {
 	GetProxies() []ProxyInfo
 	GetStatus() StatusInfo
@@ -124,6 +80,8 @@ type ProxyInfo struct {
 	LocalAddr  string `json:"localAddr"`
 	LocalPort  int    `json:"localPort"`
 	Active     bool   `json:"active"`
+	BytesIn    int64  `json:"bytesIn"`  // 入站字节（TCP）
+	BytesOut   int64  `json:"bytesOut"` // 出站字节（TCP）
 }
 
 // StatusInfo 状态信息
@@ -232,7 +190,13 @@ func (ws *WebServer) Start() error {
 	}
 
 	go func() {
-		if err := ws.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		var err error
+		if ws.config.CertFile != "" && ws.config.KeyFile != "" {
+			err = ws.server.ListenAndServeTLS(ws.config.CertFile, ws.config.KeyFile)
+		} else {
+			err = ws.server.ListenAndServe()
+		}
+		if err != nil && err != http.ErrServerClosed {
 			log.Printf("[Web] 服务器错误: %v", err)
 			ws.AddLog("error", fmt.Sprintf("Web服务器错误: %v", err))
 		}
@@ -445,10 +409,10 @@ func (ws *WebServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		Name:     "session",
 		Value:    sessionID,
 		Path:     "/",
-		HttpOnly: ws.security.HttpOnlyCookie,                          // 防止XSS窃取
-		Secure:   r.TLS != nil,                  // HTTPS时启用Secure
-		SameSite: ws.sameSite(),       // 防止CSRF
-		MaxAge:   ws.getSessionTimeoutSec(),                          // 30分钟
+		HttpOnly: ws.security.HttpOnlyCookie, // 防止XSS窃取
+		Secure:   r.TLS != nil,               // HTTPS时启用Secure
+		SameSite: ws.sameSite(),              // 防止CSRF
+		MaxAge:   ws.getSessionTimeoutSec(),  // 30分钟
 	})
 
 	ws.AddLog("info", fmt.Sprintf("管理员登录成功: %s", ip))
@@ -550,60 +514,6 @@ func (ws *WebServer) handleLogs(w http.ResponseWriter, r *http.Request) {
 }
 
 // 安全信息
-func (ws *WebServer) handleSecurity(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	if r.Method == http.MethodGet {
-		ws.secMu.RLock()
-		sec := ws.security
-		ws.secMu.RUnlock()
-		json.NewEncoder(w).Encode(sec)
-		return
-	}
-	if r.Method == http.MethodPost {
-		var req SecuritySettings
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid request", http.StatusBadRequest)
-			return
-		}
-		if req.SessionTimeoutMin < 1 {
-			req.SessionTimeoutMin = 1
-		}
-		if req.SessionTimeoutMin > 1440 {
-			req.SessionTimeoutMin = 1440
-		}
-		if req.RateLimitMax < 1 {
-			req.RateLimitMax = 1
-		}
-		if req.RateLimitMax > 100 {
-			req.RateLimitMax = 100
-		}
-		if req.RateLimitLockMin < 1 {
-			req.RateLimitLockMin = 1
-		}
-		if req.RateLimitLockMin > 1440 {
-			req.RateLimitLockMin = 1440
-		}
-		ws.secMu.Lock()
-		ws.security = req
-		sec := ws.security
-		ai := ws.ai
-		ws.secMu.Unlock()
-		if err := ws.saveSettings(sec, ai, ws.passwordHash, ws.passwordSalt); err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "保存失败: " + err.Error()})
-			return
-		}
-		ws.AddLog("info", "安全策略已更新")
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
-		return
-	}
-	w.WriteHeader(http.StatusMethodNotAllowed)
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "不支持的方法"})
-}
-
-// ==================== 中间件 ====================
-
-// 认证中间件
 func (ws *WebServer) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		// 安全头
@@ -642,14 +552,14 @@ func (ws *WebServer) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 		// 对于状态改变的请求，检查CSRF Token
 		if r.Method == "POST" || r.Method == "PUT" || r.Method == "DELETE" {
 			if ws.security.CSRFProtection {
-			csrfToken := r.Header.Get("X-CSRF-Token")
-			if csrfToken == "" {
-				csrfToken = r.FormValue("csrf_token")
-			}
-			if csrfToken == "" || subtle.ConstantTimeCompare([]byte(csrfToken), []byte(session.csrfToken)) != 1 {
-				http.Error(w, "Invalid CSRF token", http.StatusForbidden)
-				return
-			}
+				csrfToken := r.Header.Get("X-CSRF-Token")
+				if csrfToken == "" {
+					csrfToken = r.FormValue("csrf_token")
+				}
+				if csrfToken == "" || subtle.ConstantTimeCompare([]byte(csrfToken), []byte(session.csrfToken)) != 1 {
+					http.Error(w, "Invalid CSRF token", http.StatusForbidden)
+					return
+				}
 			}
 		}
 
@@ -658,29 +568,6 @@ func (ws *WebServer) authMiddleware(next http.HandlerFunc) http.HandlerFunc {
 }
 
 // 设置安全头
-func (ws *WebServer) applySecurityHeaders(w http.ResponseWriter) {
-	ws.secMu.RLock()
-	enabled := ws.security.SecurityHeaders
-	csp := ws.security.CustomCSP
-	ws.secMu.RUnlock()
-	if !enabled {
-		return
-	}
-	w.Header().Set("X-Content-Type-Options", "nosniff")
-	w.Header().Set("X-Frame-Options", "DENY")
-	w.Header().Set("X-XSS-Protection", "1; mode=block")
-	if csp != "" {
-		w.Header().Set("Content-Security-Policy", csp)
-	} else {
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'")
-	}
-	w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-	w.Header().Set("X-Permitted-Cross-Domain-Policies", "none")
-	w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
-}
-
-// ==================== 工具函数 ====================
-
 func itoa(n int) string {
 	if n == 0 {
 		return "0"
@@ -695,568 +582,4 @@ func itoa(n int) string {
 	return string(buf[i:])
 }
 
-
 // ==================== 设置与 AI 巡查 ====================
-
-func defaultSecuritySettings() SecuritySettings {
-	return SecuritySettings{
-		SessionTimeoutMin: 30,
-		RateLimitMax:      5,
-		RateLimitLockMin:  15,
-		CSRFProtection:    true,
-		SecurityHeaders:    true,
-		HttpOnlyCookie:     true,
-		SameSiteCookie:     true,
-		CustomCSP:          "",
-	}
-}
-
-func defaultAISettings() AISettings {
-	return AISettings{
-		Enabled:     false,
-		BaseURL:     "https://api.openai.com/v1",
-		APIKey:      "",
-		Model:       "gpt-4o-mini",
-		IntervalMin: 30,
-		Prompt:      "",
-		WebhookURL:  "",
-	}
-}
-
-func loadWebSettings(path string) *WebSettings {
-	ws := &WebSettings{Security: defaultSecuritySettings(), AI: defaultAISettings()}
-	if path == "" {
-		return ws
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return ws
-	}
-	_ = json.Unmarshal(data, ws)
-	return ws
-}
-
-func (ws *WebServer) saveSettings(sec SecuritySettings, ai AISettings, pwdHash, pwdSalt string) error {
-	if ws.settingsFile == "" {
-		return nil
-	}
-	data, err := json.MarshalIndent(WebSettings{Security: sec, AI: ai, AdminPasswordHash: pwdHash, AdminPasswordSalt: pwdSalt}, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp := ws.settingsFile + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, ws.settingsFile)
-}
-
-func (ws *WebServer) getSessionTimeout() time.Duration {
-	ws.secMu.RLock()
-	defer ws.secMu.RUnlock()
-	m := ws.security.SessionTimeoutMin
-	if m <= 0 {
-		m = 30
-	}
-	return time.Duration(m) * time.Minute
-}
-
-func (ws *WebServer) getSessionTimeoutSec() int {
-	ws.secMu.RLock()
-	defer ws.secMu.RUnlock()
-	m := ws.security.SessionTimeoutMin
-	if m <= 0 {
-		m = 30
-	}
-	return m * 60
-}
-
-func (ws *WebServer) getRateLimitMax() int {
-	ws.secMu.RLock()
-	defer ws.secMu.RUnlock()
-	m := ws.security.RateLimitMax
-	if m <= 0 {
-		m = 5
-	}
-	return m
-}
-
-func (ws *WebServer) getRateLimitLockMin() int {
-	ws.secMu.RLock()
-	defer ws.secMu.RUnlock()
-	m := ws.security.RateLimitLockMin
-	if m <= 0 {
-		m = 15
-	}
-	return m
-}
-
-func (ws *WebServer) sameSite() http.SameSite {
-	ws.secMu.RLock()
-	defer ws.secMu.RUnlock()
-	if ws.security.SameSiteCookie {
-		return http.SameSiteStrictMode
-	}
-	return http.SameSiteDefaultMode
-}
-
-func (ws *WebServer) handleAIConfig(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	if r.Method == http.MethodGet {
-		ws.secMu.RLock()
-		ai := ws.ai
-		ws.secMu.RUnlock()
-		masked := ai
-		if masked.APIKey != "" {
-			if len(masked.APIKey) > 4 {
-				masked.APIKey = "****" + masked.APIKey[len(masked.APIKey)-4:]
-			} else {
-				masked.APIKey = "****"
-			}
-		}
-		json.NewEncoder(w).Encode(masked)
-		return
-	}
-	if r.Method == http.MethodPost {
-		var req AISettings
-		r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid request", http.StatusBadRequest)
-			return
-		}
-		if req.IntervalMin < 5 {
-			req.IntervalMin = 5
-		}
-		if req.IntervalMin > 1440 {
-			req.IntervalMin = 1440
-		}
-		ws.secMu.Lock()
-		if req.APIKey == "" || strings.HasPrefix(req.APIKey, "****") {
-			req.APIKey = ws.ai.APIKey
-		}
-		wasEnabled := ws.ai.Enabled
-		ws.ai = req
-		sec := ws.security
-		ai := ws.ai
-		ws.secMu.Unlock()
-		if err := ws.saveSettings(sec, ai, ws.passwordHash, ws.passwordSalt); err != nil {
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "保存失败: " + err.Error()})
-			return
-		}
-		ws.AddLog("info", "AI 巡查配置已更新")
-		if ai.Enabled {
-			ws.stopAIPatrolScheduler()
-			ws.startAIPatrolScheduler()
-		} else if wasEnabled {
-			ws.stopAIPatrolScheduler()
-		}
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
-		return
-	}
-	w.WriteHeader(http.StatusMethodNotAllowed)
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "不支持的方法"})
-}
-
-func (ws *WebServer) handleAIPatrol(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	if r.Method == http.MethodGet {
-		ws.patrolMu.RLock()
-		list := make([]PatrolResult, len(ws.patrols))
-		copy(list, ws.patrols)
-		ws.patrolMu.RUnlock()
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"patrols": list,
-			"total":   len(list),
-		})
-		return
-	}
-	if r.Method == http.MethodPost {
-		if !ws.doAIPatrol() {
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "AI 巡查未启用或未配置"})
-			return
-		}
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
-		return
-	}
-	w.WriteHeader(http.StatusMethodNotAllowed)
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": false})
-}
-
-func normalizeChatURL(base string) string {
-	base = strings.TrimSpace(base)
-	if base == "" {
-		return ""
-	}
-	base = strings.TrimRight(base, "/")
-	if strings.Contains(base, "/chat/completions") {
-		return base
-	}
-	return base + "/chat/completions"
-}
-
-func parsePatrolContent(content string) (string, string, string) {
-	c := strings.TrimSpace(content)
-	if strings.HasPrefix(c, "```") {
-		if i := strings.Index(c, "\n"); i >= 0 {
-			c = c[i+1:]
-		}
-		if strings.HasSuffix(c, "```") {
-			c = c[:len(c)-3]
-		}
-		c = strings.TrimSpace(c)
-	}
-	var obj struct {
-		Level   string `json:"level"`
-		Summary string `json:"summary"`
-		Details string `json:"details"`
-	}
-	if err := json.Unmarshal([]byte(c), &obj); err == nil && obj.Summary != "" {
-		level := obj.Level
-		if level == "" {
-			level = "ok"
-		}
-		return level, obj.Summary, obj.Details
-	}
-	return "info", strings.TrimSpace(content), ""
-}
-
-func (ws *WebServer) doAIPatrol() bool {
-	if !atomic.CompareAndSwapInt32(&ws.patrolRunning, 0, 1) {
-		return true
-	}
-	defer atomic.StoreInt32(&ws.patrolRunning, 0)
-
-	ws.secMu.RLock()
-	ai := ws.ai
-	ws.secMu.RUnlock()
-	if !ai.Enabled || ai.APIKey == "" || ai.BaseURL == "" || ai.Model == "" {
-		return false
-	}
-
-	ws.logsMu.RLock()
-	logs := make([]LogEntry, len(ws.logs))
-	copy(logs, ws.logs)
-	ws.logsMu.RUnlock()
-	if len(logs) > 50 {
-		logs = logs[len(logs)-50:]
-	}
-	var sb strings.Builder
-	for _, l := range logs {
-		sb.WriteString(fmt.Sprintf("[%s][%s] %s\n", l.Time, l.Level, l.Message))
-	}
-	logText := sb.String()
-	st := ws.proxyManager.GetStatus()
-
-	systemPrompt := "你是内网穿透服务 NexusLink 的安全巡查助手。请根据提供的运行日志与状态判断是否存在异常、攻击迹象或安全隐患。用简体中文回复，且只输出一个 JSON 对象：{\"level\":\"ok|warn|danger\",\"summary\":\"一句话结论\",\"details\":\"详细分析与建议\"}。不要输出 JSON 以外的任何内容。"
-	var userPrompt string
-	if ai.Prompt != "" {
-		userPrompt = fmt.Sprintf("%s\n\n【当前状态】版本:%s 客户端数:%d 代理数:%d 监听:%s:%d\n【最近日志】\n%s",
-			ai.Prompt, st.Version, st.ClientCount, st.ProxyCount, st.BindAddr, st.BindPort, logText)
-	} else {
-		userPrompt = fmt.Sprintf("以下是 NexusLink 服务端最近的运行日志和当前状态，请巡查分析：\n\n【当前状态】\n版本:%s 运行:%v 客户端数:%d 代理数:%d 监听:%s:%d\n\n【最近日志】\n%s",
-			st.Version, st.Running, st.ClientCount, st.ProxyCount, st.BindAddr, st.BindPort, logText)
-	}
-
-	url := normalizeChatURL(ai.BaseURL)
-	body := map[string]interface{}{
-		"model": ai.Model,
-		"messages": []map[string]string{
-			{"role": "system", "content": systemPrompt},
-			{"role": "user", "content": userPrompt},
-		},
-		"temperature": 0.2,
-	}
-	raw, _ := json.Marshal(body)
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(raw))
-	if err != nil {
-		ws.recordPatrol("error", "AI 请求构建失败", err.Error())
-		return true
-	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+ai.APIKey)
-
-	client := &http.Client{Timeout: 60 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		ws.recordPatrol("error", "AI 接口调用失败", err.Error())
-		return true
-	}
-	defer resp.Body.Close()
-	rb, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		ws.recordPatrol("error", "AI 接口返回错误", fmt.Sprintf("HTTP %d: %s", resp.StatusCode, string(rb)))
-		return true
-	}
-	var out struct {
-		Choices []struct {
-			Message struct {
-				Content string `json:"content"`
-			} `json:"message"`
-		} `json:"choices"`
-	}
-	if err := json.Unmarshal(rb, &out); err != nil || len(out.Choices) == 0 {
-		ws.recordPatrol("warn", "AI 响应解析失败", string(rb))
-		return true
-	}
-	level, summary, details := parsePatrolContent(out.Choices[0].Message.Content)
-	ws.recordPatrol(level, summary, details)
-	ws.notifyPatrol(ai, level, summary, details)
-	return true
-}
-
-func (ws *WebServer) recordPatrol(level, summary, details string) {
-	if level == "" {
-		level = "info"
-	}
-	r := PatrolResult{
-		Time:    time.Now().Format("2006-01-02 15:04:05"),
-		Level:   level,
-		Summary: summary,
-		Details: details,
-	}
-	ws.patrolMu.Lock()
-	ws.patrols = append(ws.patrols, r)
-	if len(ws.patrols) > 100 {
-		ws.patrols = ws.patrols[len(ws.patrols)-100:]
-	}
-	ws.patrolMu.Unlock()
-	ws.savePatrolHistory()
-	ws.AddLog("info", "AI 巡查完成: "+summary)
-}
-
-func (ws *WebServer) startAIPatrolScheduler() {
-	ws.secMu.RLock()
-	enabled := ws.ai.Enabled
-	interval := ws.ai.IntervalMin
-	ws.secMu.RUnlock()
-	if !enabled {
-		return
-	}
-	if interval < 5 {
-		interval = 5
-	}
-	ws.stopAIPatrolScheduler()
-	ws.patrolQuit = make(chan struct{})
-	go func() {
-		ticker := time.NewTicker(time.Duration(interval) * time.Minute)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ws.patrolQuit:
-				return
-			case <-ticker.C:
-				ws.doAIPatrol()
-			}
-		}
-	}()
-}
-
-func (ws *WebServer) stopAIPatrolScheduler() {
-	if ws.patrolQuit != nil {
-		close(ws.patrolQuit)
-		ws.patrolQuit = nil
-	}
-}
-
-
-// 实时安全状态：活动会话数 + 被锁定的 IP
-func (ws *WebServer) handleSecurityStatus(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	ws.sessionMu.RLock()
-	activeSessions := len(ws.sessions)
-	ws.sessionMu.RUnlock()
-
-	ws.loginMu.RLock()
-	locked := make([]map[string]interface{}, 0)
-	now := time.Now()
-	for ip, a := range ws.failedLogins {
-		if now.Before(a.lockUntil) {
-			locked = append(locked, map[string]interface{}{
-				"ip":        ip,
-				"unlock_at": a.lockUntil.Format("2006-01-02 15:04:05"),
-			})
-		}
-	}
-	ws.loginMu.RUnlock()
-
-	json.NewEncoder(w).Encode(map[string]interface{}{
-		"active_sessions": activeSessions,
-		"locked_ips":      locked,
-	})
-}
-
-// 手动解锁某个被锁定的 IP
-func (ws *WebServer) handleSecurityUnlock(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	var req struct {
-		IP string `json:"ip"`
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.IP == "" {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
-		return
-	}
-	ws.loginMu.Lock()
-	delete(ws.failedLogins, req.IP)
-	ws.loginMu.Unlock()
-	ws.AddLog("info", fmt.Sprintf("手动解锁 IP: %s", req.IP))
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
-}
-
-// 安全事件流：从运行日志中筛选安全相关条目（倒序，最多 50 条）
-func (ws *WebServer) handleSecurityEvents(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	ws.logsMu.RLock()
-	logs := make([]LogEntry, len(ws.logs))
-	copy(logs, ws.logs)
-	ws.logsMu.RUnlock()
-
-	keywords := []string{"登录", "锁定", "安全", "巡查", "登出", "密码", "IP", "失败", "CSRF", "会话", "解锁", "告警"}
-	out := make([]LogEntry, 0)
-	for i := len(logs) - 1; i >= 0; i-- {
-		l := logs[i]
-		hit := false
-		for _, k := range keywords {
-			if strings.Contains(l.Message, k) {
-				hit = true
-				break
-			}
-		}
-		if hit {
-			out = append(out, l)
-		}
-		if len(out) >= 50 {
-			break
-		}
-	}
-	json.NewEncoder(w).Encode(map[string]interface{}{"events": out, "total": len(out)})
-}
-
-
-// notifyPatrol 风险告警：巡查结果为 warn/danger 且配置了 Webhook 时异步发送通知
-func (ws *WebServer) notifyPatrol(ai AISettings, level, summary, details string) {
-	if ai.WebhookURL == "" {
-		return
-	}
-	if level != "warn" && level != "danger" {
-		return
-	}
-	payload, _ := json.Marshal(map[string]string{
-		"time":    time.Now().Format("2006-01-02 15:04:05"),
-		"level":   level,
-		"summary": summary,
-		"details": details,
-	})
-	go func() {
-		req, err := http.NewRequest(http.MethodPost, ai.WebhookURL, bytes.NewReader(payload))
-		if err != nil {
-			ws.AddLog("warn", "告警 Webhook 请求构建失败: "+err.Error())
-			return
-		}
-		req.Header.Set("Content-Type", "application/json")
-		client := &http.Client{Timeout: 10 * time.Second}
-		resp, err := client.Do(req)
-		if err != nil {
-			ws.AddLog("warn", "告警 Webhook 调用失败: "+err.Error())
-			return
-		}
-		defer resp.Body.Close()
-		_, _ = io.Copy(io.Discard, resp.Body)
-		ws.AddLog("info", fmt.Sprintf("风险告警已发送至 Webhook (HTTP %d)", resp.StatusCode))
-	}()
-}
-
-
-// 修改管理密码（校验当前密码，成功后清除全部会话强制重新登录）
-func (ws *WebServer) handleChangePassword(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-	var req struct {
-		CurrentPassword string `json:"current_password"`
-		NewPassword     string `json:"new_password"`
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		http.Error(w, "Invalid request", http.StatusBadRequest)
-		return
-	}
-	hash := hashPasswordWithSalt(req.CurrentPassword, ws.passwordSalt)
-	if subtle.ConstantTimeCompare([]byte(hash), []byte(ws.passwordHash)) != 1 {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "当前密码错误"})
-		return
-	}
-	if len(req.NewPassword) < 6 {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "新密码至少需要 6 位"})
-		return
-	}
-	if req.NewPassword == req.CurrentPassword {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "新密码不能与当前密码相同"})
-		return
-	}
-	newSalt := generateSalt()
-	newHash := hashPasswordWithSalt(req.NewPassword, newSalt)
-	ws.passwordSalt = newSalt
-	ws.passwordHash = newHash
-
-	ws.secMu.RLock()
-	sec := ws.security
-	ai := ws.ai
-	ws.secMu.RUnlock()
-	if err := ws.saveSettings(sec, ai, newHash, newSalt); err != nil {
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "保存失败: " + err.Error()})
-		return
-	}
-	// 清除所有会话（强制重新登录）
-	ws.sessionMu.Lock()
-	ws.sessions = make(map[string]sessionInfo)
-	ws.sessionMu.Unlock()
-	ws.AddLog("warn", "管理密码已修改，所有会话已失效")
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
-}
-
-
-// 加载巡查历史（重启后保留）
-func loadPatrolHistory(path string) []PatrolResult {
-	if path == "" {
-		return make([]PatrolResult, 0)
-	}
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return make([]PatrolResult, 0)
-	}
-	var list []PatrolResult
-	if err := json.Unmarshal(data, &list); err != nil {
-		return make([]PatrolResult, 0)
-	}
-	if list == nil {
-		list = make([]PatrolResult, 0)
-	}
-	return list
-}
-
-// 保存巡查历史（原子写盘，上限 100 条与内存一致）
-func (ws *WebServer) savePatrolHistory() {
-	if ws.patrolFile == "" {
-		return
-	}
-	ws.patrolMu.RLock()
-	list := make([]PatrolResult, len(ws.patrols))
-	copy(list, ws.patrols)
-	ws.patrolMu.RUnlock()
-	data, err := json.MarshalIndent(list, "", "  ")
-	if err != nil {
-		return
-	}
-	tmp := ws.patrolFile + ".tmp"
-	if err := os.WriteFile(tmp, data, 0644); err != nil {
-		return
-	}
-	_ = os.Rename(tmp, ws.patrolFile)
-}
