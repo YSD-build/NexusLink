@@ -717,6 +717,29 @@
                         <div class="card-title">📜 安全事件</div>
                         <div id="secEventsBody"><div class="empty">暂无安全事件</div></div>
                     </div>
+
+                    <!-- 修改密码 -->
+                    <div class="card">
+                        <div class="card-title">🔑 修改管理密码</div>
+                        <div class="form-grid">
+                            <div class="form-group">
+                                <label>当前密码</label>
+                                <input type="password" id="pwCurrent" autocomplete="current-password">
+                            </div>
+                            <div class="form-group">
+                                <label>新密码（至少 6 位）</label>
+                                <input type="password" id="pwNew" autocomplete="new-password">
+                            </div>
+                            <div class="form-group" style="grid-column:1/-1">
+                                <label>确认新密码</label>
+                                <input type="password" id="pwConfirm" autocomplete="new-password">
+                            </div>
+                        </div>
+                        <div class="form-actions">
+                            <button class="btn-sm" onclick="changePassword()">修改密码</button>
+                            <span class="save-hint" id="pwSaveHint"></span>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="page" id="logsPage">
@@ -1253,6 +1276,35 @@ async function loadLogs() {
                         <span class="event-msg">${escapeHtml(e.message)}</span>
                     </div>`).join('');
             } catch (err) { console.error('加载安全事件失败:', err); }
+        }
+
+        // 修改管理密码
+        async function changePassword() {
+            const hint = document.getElementById('pwSaveHint');
+            const cur = document.getElementById('pwCurrent').value;
+            const nw = document.getElementById('pwNew').value;
+            const cf = document.getElementById('pwConfirm').value;
+            if (!cur || !nw) { hint.textContent = '请填写完整'; hint.className = 'save-hint err'; return; }
+            if (nw.length < 6) { hint.textContent = '新密码至少 6 位'; hint.className = 'save-hint err'; return; }
+            if (nw !== cf) { hint.textContent = '两次输入的新密码不一致'; hint.className = 'save-hint err'; return; }
+            hint.textContent = '提交中...'; hint.className = 'save-hint';
+            try {
+                const res = await fetch('/api/change-password', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({ current_password: cur, new_password: nw })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert('密码已修改，请使用新密码重新登录');
+                    logout();
+                } else {
+                    hint.textContent = data.error || '修改失败'; hint.className = 'save-hint err';
+                }
+            } catch (err) {
+                hint.textContent = '网络错误'; hint.className = 'save-hint err';
+            }
         }
 </script>
 </body>

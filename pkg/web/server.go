@@ -46,6 +46,7 @@ type WebServer struct {
 	patrolQuit    chan struct{}
 	patrolRunning int32
 	settingsFile  string
+	patrolFile    string
 }
 
 type sessionInfo struct {
@@ -65,6 +66,7 @@ type WebConfig struct {
 	AdminPassword string
 	TrustProxy    bool
 	SettingsFile  string // web_settings.json 持久化路径
+	PatrolFile    string // AI 巡查历史持久化路径（patrol_history.json）
 }
 
 
@@ -94,8 +96,10 @@ type AISettings struct {
 
 // WebSettings 持久化设置
 type WebSettings struct {
-	Security SecuritySettings `json:"security"`
-	AI       AISettings       `json:"ai"`
+	Security           SecuritySettings `json:"security"`
+	AI                 AISettings       `json:"ai"`
+	AdminPasswordHash  string           `json:"admin_password_hash,omitempty"`
+	AdminPasswordSalt  string           `json:"admin_password_salt,omitempty"`
 }
 
 // PatrolResult AI 巡查结果
@@ -161,6 +165,14 @@ func NewWebServer(cfg *WebConfig, proxyManager ProxyManager) *WebServer {
 		ai:           settings.AI,
 		patrolQuit:   make(chan struct{}),
 		settingsFile: cfg.SettingsFile,
+		patrolFile:   cfg.PatrolFile,
+		patrols:      loadPatrolHistory(cfg.PatrolFile),
+	}
+
+	// 优先使用 web_settings.json 中持久化的管理密码（修改过密码后重启仍生效）
+	if settings.AdminPasswordHash != "" && settings.AdminPasswordSalt != "" {
+		ws.passwordHash = settings.AdminPasswordHash
+		ws.passwordSalt = settings.AdminPasswordSalt
 	}
 
 	// 启动session清理
@@ -193,6 +205,7 @@ func (ws *WebServer) Start() error {
 	mux.HandleFunc("/api/security-status", ws.authMiddleware(ws.handleSecurityStatus))
 	mux.HandleFunc("/api/security-unlock", ws.authMiddleware(ws.handleSecurityUnlock))
 	mux.HandleFunc("/api/security-events", ws.authMiddleware(ws.handleSecurityEvents))
+	mux.HandleFunc("/api/change-password", ws.authMiddleware(ws.handleChangePassword))
 
 	addr := ws.config.Addr
 	if addr == "" {
@@ -576,7 +589,7 @@ func (ws *WebServer) handleSecurity(w http.ResponseWriter, r *http.Request) {
 		sec := ws.security
 		ai := ws.ai
 		ws.secMu.Unlock()
-		if err := ws.saveSettings(sec, ai); err != nil {
+		if err := ws.saveSettings(sec, ai, ws.passwordHash, ws.passwordSalt); err != nil {
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "保存失败: " + err.Error()})
 			return
 		}
@@ -723,11 +736,11 @@ func loadWebSettings(path string) *WebSettings {
 	return ws
 }
 
-func (ws *WebServer) saveSettings(sec SecuritySettings, ai AISettings) error {
+func (ws *WebServer) saveSettings(sec SecuritySettings, ai AISettings, pwdHash, pwdSalt string) error {
 	if ws.settingsFile == "" {
 		return nil
 	}
-	data, err := json.MarshalIndent(WebSettings{Security: sec, AI: ai}, "", "  ")
+	data, err := json.MarshalIndent(WebSettings{Security: sec, AI: ai, AdminPasswordHash: pwdHash, AdminPasswordSalt: pwdSalt}, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -826,7 +839,7 @@ func (ws *WebServer) handleAIConfig(w http.ResponseWriter, r *http.Request) {
 		sec := ws.security
 		ai := ws.ai
 		ws.secMu.Unlock()
-		if err := ws.saveSettings(sec, ai); err != nil {
+		if err := ws.saveSettings(sec, ai, ws.passwordHash, ws.passwordSalt); err != nil {
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "保存失败: " + err.Error()})
 			return
 		}
@@ -1007,6 +1020,7 @@ func (ws *WebServer) recordPatrol(level, summary, details string) {
 		ws.patrols = ws.patrols[len(ws.patrols)-100:]
 	}
 	ws.patrolMu.Unlock()
+	ws.savePatrolHistory()
 	ws.AddLog("info", "AI 巡查完成: "+summary)
 }
 
@@ -1154,4 +1168,95 @@ func (ws *WebServer) notifyPatrol(ai AISettings, level, summary, details string)
 		_, _ = io.Copy(io.Discard, resp.Body)
 		ws.AddLog("info", fmt.Sprintf("风险告警已发送至 Webhook (HTTP %d)", resp.StatusCode))
 	}()
+}
+
+
+// 修改管理密码（校验当前密码，成功后清除全部会话强制重新登录）
+func (ws *WebServer) handleChangePassword(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		CurrentPassword string `json:"current_password"`
+		NewPassword     string `json:"new_password"`
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "Invalid request", http.StatusBadRequest)
+		return
+	}
+	hash := hashPasswordWithSalt(req.CurrentPassword, ws.passwordSalt)
+	if subtle.ConstantTimeCompare([]byte(hash), []byte(ws.passwordHash)) != 1 {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "当前密码错误"})
+		return
+	}
+	if len(req.NewPassword) < 6 {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "新密码至少需要 6 位"})
+		return
+	}
+	if req.NewPassword == req.CurrentPassword {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "新密码不能与当前密码相同"})
+		return
+	}
+	newSalt := generateSalt()
+	newHash := hashPasswordWithSalt(req.NewPassword, newSalt)
+	ws.passwordSalt = newSalt
+	ws.passwordHash = newHash
+
+	ws.secMu.RLock()
+	sec := ws.security
+	ai := ws.ai
+	ws.secMu.RUnlock()
+	if err := ws.saveSettings(sec, ai, newHash, newSalt); err != nil {
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "保存失败: " + err.Error()})
+		return
+	}
+	// 清除所有会话（强制重新登录）
+	ws.sessionMu.Lock()
+	ws.sessions = make(map[string]sessionInfo)
+	ws.sessionMu.Unlock()
+	ws.AddLog("warn", "管理密码已修改，所有会话已失效")
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+
+// 加载巡查历史（重启后保留）
+func loadPatrolHistory(path string) []PatrolResult {
+	if path == "" {
+		return make([]PatrolResult, 0)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return make([]PatrolResult, 0)
+	}
+	var list []PatrolResult
+	if err := json.Unmarshal(data, &list); err != nil {
+		return make([]PatrolResult, 0)
+	}
+	if list == nil {
+		list = make([]PatrolResult, 0)
+	}
+	return list
+}
+
+// 保存巡查历史（原子写盘，上限 100 条与内存一致）
+func (ws *WebServer) savePatrolHistory() {
+	if ws.patrolFile == "" {
+		return
+	}
+	ws.patrolMu.RLock()
+	list := make([]PatrolResult, len(ws.patrols))
+	copy(list, ws.patrols)
+	ws.patrolMu.RUnlock()
+	data, err := json.MarshalIndent(list, "", "  ")
+	if err != nil {
+		return
+	}
+	tmp := ws.patrolFile + ".tmp"
+	if err := os.WriteFile(tmp, data, 0644); err != nil {
+		return
+	}
+	_ = os.Rename(tmp, ws.patrolFile)
 }
