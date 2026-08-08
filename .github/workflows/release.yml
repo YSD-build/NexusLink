@@ -74,13 +74,13 @@ jobs:
           TAG="${GITHUB_REF_NAME}"
           BODY="## ${TAG}
 
-由 GitHub Actions 自动构建发布：服务端 + 客户端共 12 个平台产物。
+          由 GitHub Actions 自动构建发布：服务端 + 客户端共 12 个平台产物。
 
-**服务端**：linux-x86_64 / armv6 / armv7 / armv8、windows-x86_64 / arm64
-**客户端**：linux-x86_64 / armv6 / armv7 / armv8、windows-x86_64、android-arm64
+          **服务端**：linux-x86_64 / armv6 / armv7 / armv8、windows-x86_64 / arm64
+          **客户端**：linux-x86_64 / armv6 / armv7 / armv8、windows-x86_64、android-arm64
 
-> 🐳 Docker 镜像：\`ghcr.io/ysd-build/nexuslink\`（tag 自动构建多架构，见 [README](https://github.com/YSD-build/NexusLink#readme)）
-> 📚 文档：[Wiki](https://github.com/YSD-build/NexusLink/wiki)"
+          > 🐳 Docker 镜像：\`ghcr.io/ysd-build/nexuslink\`（tag 自动构建多架构，见 [README](https://github.com/YSD-build/NexusLink#readme)）
+          > 📚 文档：[Wiki](https://github.com/YSD-build/NexusLink/wiki)"
           gh release create "$TAG" \
             --title "NexusLink $TAG" \
             --notes "$BODY" \
