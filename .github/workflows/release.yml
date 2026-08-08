@@ -1,0 +1,87 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  # 矩阵构建 12 个平台产物（与 v0.3.x 发布资产命名一致）
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { pkg: server, goos: linux,   goarch: amd64, name: linux-x86_64 }
+          - { pkg: server, goos: linux,   goarch: arm,   goarm: "6", name: linux-armv6 }
+          - { pkg: server, goos: linux,   goarch: arm,   goarm: "7", name: linux-armv7 }
+          - { pkg: server, goos: linux,   goarch: arm64, name: linux-armv8 }
+          - { pkg: server, goos: windows, goarch: amd64, name: windows-x86_64.exe }
+          - { pkg: server, goos: windows, goarch: arm64, name: windows-arm64.exe }
+          - { pkg: client, goos: linux,   goarch: amd64, name: linux-x86_64 }
+          - { pkg: client, goos: linux,   goarch: arm,   goarm: "6", name: linux-armv6 }
+          - { pkg: client, goos: linux,   goarch: arm,   goarm: "7", name: linux-armv7 }
+          - { pkg: client, goos: linux,   goarch: arm64, name: linux-armv8 }
+          - { pkg: client, goos: windows, goarch: amd64, name: windows-x86_64.exe }
+          - { pkg: client, goos: android, goarch: arm64, name: android-arm64 }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+
+      - name: 构建 ${{ matrix.pkg }}-${{ matrix.name }}
+        env:
+          CGO_ENABLED: '0'
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+        run: |
+          ASSET="nexuslink-${{ matrix.pkg }}-${GITHUB_REF_NAME}-${{ matrix.name }}"
+          mkdir -p dist
+          go build -trimpath -ldflags "-s -w" -o "dist/${ASSET}" "./cmd/${{ matrix.pkg }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: asset-${{ matrix.pkg }}-${{ matrix.name }}
+          path: dist/
+          if-no-files-found: error
+
+  # 仅 tag 推送时创建并发布 Release（workflow_dispatch 只验证构建）
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: 汇总资产到根目录
+        run: |
+          find dist -type f -name 'nexuslink-*' -exec mv -f {} . \;
+          ls -la nexuslink-*
+
+      - name: 创建 Release 并上传资产
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF_NAME}"
+          BODY="## ${TAG}
+
+由 GitHub Actions 自动构建发布：服务端 + 客户端共 12 个平台产物。
+
+**服务端**：linux-x86_64 / armv6 / armv7 / armv8、windows-x86_64 / arm64
+**客户端**：linux-x86_64 / armv6 / armv7 / armv8、windows-x86_64、android-arm64
+
+> 🐳 Docker 镜像：\`ghcr.io/ysd-build/nexuslink\`（tag 自动构建多架构，见 [README](https://github.com/YSD-build/NexusLink#readme)）
+> 📚 文档：[Wiki](https://github.com/YSD-build/NexusLink/wiki)"
+          gh release create "$TAG" \
+            --title "NexusLink $TAG" \
+            --notes "$BODY" \
+            nexuslink-*
