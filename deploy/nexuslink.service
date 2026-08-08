@@ -1,0 +1,25 @@
+[Unit]
+Description=NexusLink Secure Tunnel Server
+Documentation=https://github.com/YSD-build/NexusLink/wiki
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# 按实际部署修改用户与路径（默认 nexuslink 用户 + /opt/nexuslink 目录）
+User=nexuslink
+Group=nexuslink
+WorkingDirectory=/opt/nexuslink
+ExecStart=/usr/local/bin/nexuslink-server -c /opt/nexuslink/server.yaml
+Restart=always
+RestartSec=3
+# 提高文件描述符上限，适配大量并发隧道
+LimitNOFILE=65536
+
+# 安全加固
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
