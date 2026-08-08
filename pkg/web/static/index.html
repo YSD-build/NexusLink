@@ -502,7 +502,7 @@
             </nav>
 
             <div class="side-footer">
-                <span class="version-pill" id="versionText">v0.3.5</span>
+                <span class="version-pill" id="versionText">v0.3.6</span>
                 <button class="logout-btn" onclick="logout()">退出</button>
             </div>
         </aside>
@@ -906,7 +906,7 @@
 
         // 更新仪表盘
         function updateDashboard(data) {
-            document.getElementById('versionText').textContent = data.version || 'v0.3.5';
+            document.getElementById('versionText').textContent = data.version || 'v0.3.6';
 
             const serviceStatus = document.getElementById('serviceStatus');
             if (data.running) {
