@@ -179,8 +179,8 @@ Registering proxy [game_udp] type=udp local=127.0.0.1:9000 remote=25566
 - 登录请求体限制 1MB（`MaxBytesReader`），防 OOM
 - `HttpOnly` + `SameSite=Strict` Cookie + CSRF Token（可开关）
 - 受保护 API 未授权返回 401；`/api/config` 不泄露 token
-- **安全中心**：安全策略可调、实时会话 / IP 锁定监控与一键解锁、安全事件审计
-- **AI 智能巡查**：定时调用 OpenAI 兼容接口巡检日志，warn/danger 触发 Webhook 告警
+- **安全中心**：安全策略可调、实时会话 / IP 锁定监控与一键解锁、安全事件审计、在线修改管理密码（成功后强制重登）
+- **AI 智能巡查**：定时调用 OpenAI 兼容接口巡检日志，warn/danger 触发 Webhook 告警；巡查历史持久化，重启不丢失
 ---
 ## 💡 使用示例
 ### 穿透 Minecraft 服务器（TCP）
