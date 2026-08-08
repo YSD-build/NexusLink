@@ -85,4 +85,4 @@ jobs:
           gh release create "$TAG" \
             --title "NexusLink $TAG" \
             --notes "$BODY" \
-            nexuslink-*
+            nexuslink-*-"$TAG"-*
