@@ -36,11 +36,10 @@ curl -fsSL https://github.com/YSD-build/NexusLink/raw/main/scripts/install-nexus
 - 📦 **零依赖**：纯 Go 编译，单文件二进制，跨平台
 - 🖥️ **Web 管理面板**：状态 / 配置 / 日志 / 隧道管理，登录失败锁定 + CSRF 防护
 - ⚙️ **安全中心可调**：会话超时 / 失败锁定阈值 / 防护开关 / 自定义 CSP，实时生效
-- 🤖 **AI 智能巡查**：接入 OpenAI 兼容 API 定时安全巡检，异常自动 Webhook 告警
 - 📜 **GPL-3.0 开源**
 ---
 ## 📌 当前版本
-**v0.3.6** — 安全中心新增在线修改密码与 AI 巡查历史持久化；主页文案全面更新；Release 与 Docker 发布全自动化
+**v0.3.6** — 安全中心新增在线修改密码；主页文案全面更新；Release 与 Docker 发布全自动化
 **v0.3.5** — Web 管理面板安全中心全面升级：可调安全策略 + AI 定时巡查 + Webhook 告警 + 实时安全监控；侧边栏固定并去除图标。
 **v0.3.4** — Web 管理面板新增「API 令牌」与「关于」页面，完善面板信息展示。
 > 下载与资产见下方「下载安装」。历史说明见 [Releases](https://github.com/YSD-build/NexusLink/releases)。📚 详细文档见 [Wiki](https://github.com/YSD-build/NexusLink/wiki)。
@@ -181,7 +180,6 @@ Registering proxy [game_udp] type=udp local=127.0.0.1:9000 remote=25566
 - `HttpOnly` + `SameSite=Strict` Cookie + CSRF Token（可开关）
 - 受保护 API 未授权返回 401；`/api/config` 不泄露 token
 - **安全中心**：安全策略可调、实时会话 / IP 锁定监控与一键解锁、安全事件审计、在线修改管理密码（成功后强制重登）
-- **AI 智能巡查**：定时调用 OpenAI 兼容接口巡检日志，warn/danger 触发 Webhook 告警；巡查历史持久化，重启不丢失
 ---
 ## 🔒 可选增强（TLS / ACL / 流量统计）
 

@@ -192,11 +192,9 @@ func main() {
 	if cfg.WebEnable || cfg.WebPassword != "" {
 		// 计算 web 设置持久化文件路径（与配置文件同目录）
 		settingsFile := "web_settings.json"
-		patrolFile := "patrol_history.json"
 		if *configFile != "" {
 			if dir := filepath.Dir(*configFile); dir != "." && dir != "" {
 				settingsFile = filepath.Join(dir, "web_settings.json")
-				patrolFile = filepath.Join(dir, "patrol_history.json")
 			}
 		}
 		webCfg := &web.WebConfig{
@@ -204,7 +202,6 @@ func main() {
 			Port:          cfg.WebPort,
 			AdminPassword: cfg.WebPassword,
 			SettingsFile:  settingsFile,
-			PatrolFile:    patrolFile,
 			CertFile:      cfg.WebTLSCert,
 			KeyFile:       cfg.WebTLSKey,
 		}

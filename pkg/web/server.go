@@ -34,14 +34,8 @@ type WebServer struct {
 	proxyManager  ProxyManager
 	config        *WebConfig
 	security      SecuritySettings
-	ai            AISettings
 	secMu         sync.RWMutex
-	patrols       []PatrolResult
-	patrolMu      sync.RWMutex
-	patrolQuit    chan struct{}
-	patrolRunning int32
 	settingsFile  string
-	patrolFile    string
 }
 
 type sessionInfo struct {
@@ -61,7 +55,6 @@ type WebConfig struct {
 	AdminPassword string
 	TrustProxy    bool
 	SettingsFile  string // web_settings.json 持久化路径
-	PatrolFile    string // AI 巡查历史持久化路径（patrol_history.json）
 	CertFile      string // Web 面板 HTTPS 证书（可选，配置即启用 HTTPS）
 	KeyFile       string // Web 面板 HTTPS 私钥
 }
@@ -120,11 +113,7 @@ func NewWebServer(cfg *WebConfig, proxyManager ProxyManager) *WebServer {
 		proxyManager: proxyManager,
 		config:       cfg,
 		security:     settings.Security,
-		ai:           settings.AI,
-		patrolQuit:   make(chan struct{}),
 		settingsFile: cfg.SettingsFile,
-		patrolFile:   cfg.PatrolFile,
-		patrols:      loadPatrolHistory(cfg.PatrolFile),
 	}
 
 	// 优先使用 web_settings.json 中持久化的管理密码（修改过密码后重启仍生效）
@@ -158,8 +147,6 @@ func (ws *WebServer) Start() error {
 	mux.HandleFunc("/api/config", ws.authMiddleware(ws.handleConfig))
 	mux.HandleFunc("/api/logs", ws.authMiddleware(ws.handleLogs))
 	mux.HandleFunc("/api/security", ws.authMiddleware(ws.handleSecurity))
-	mux.HandleFunc("/api/ai-config", ws.authMiddleware(ws.handleAIConfig))
-	mux.HandleFunc("/api/ai-patrol", ws.authMiddleware(ws.handleAIPatrol))
 	mux.HandleFunc("/api/security-status", ws.authMiddleware(ws.handleSecurityStatus))
 	mux.HandleFunc("/api/security-unlock", ws.authMiddleware(ws.handleSecurityUnlock))
 	mux.HandleFunc("/api/security-events", ws.authMiddleware(ws.handleSecurityEvents))
@@ -201,8 +188,6 @@ func (ws *WebServer) Start() error {
 			ws.AddLog("error", fmt.Sprintf("Web服务器错误: %v", err))
 		}
 	}()
-
-	ws.startAIPatrolScheduler()
 
 	return nil
 }

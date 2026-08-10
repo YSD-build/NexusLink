@@ -409,9 +409,6 @@
         .btn-ghost:hover { background: #eef1ff; box-shadow: none; }
         .save-hint { font-size: 13px; color: var(--ok); }
         .save-hint.err { color: var(--danger); }
-        .ai-card { background: linear-gradient(135deg,#f4f1ff 0%,#eef2ff 100%); border: 1px solid #d9d2fb; }
-        .ai-card .card-title { color: #6b4ee6; }
-        .ai-card .card-title::before { background: linear-gradient(135deg,#7c4dff,#9a6bff); }
         .patrol-item { padding: 14px 0; border-bottom: 1px solid var(--line); }
         .patrol-item:last-child { border-bottom: none; }
         .patrol-head { display: flex; align-items: center; gap: 10px; }
@@ -458,7 +455,7 @@
             </form>
             <div class="security-tip">
                 <strong>🔒 安全模式已启用</strong>
-                密码加密 · 防暴力破解 · 登录锁定 · AI 智能巡查
+                密码加密 · 防暴力破解 · 登录锁定 · 会话超时
             </div>
         </div>
     </div>
@@ -480,24 +477,11 @@
             </div>
 
             <nav class="side-nav">
-                <div class="nav-group">
-                    <div class="nav-group-title">监控</div>
-                    <div class="tab active" data-page="dashboard">                        概览
-                    </div>
-                    <div class="tab" data-page="logs">                        运行日志
-                    </div>
+                <div class="tab active" data-page="dashboard">                        概览
                 </div>
-                <div class="nav-group">
-                    <div class="nav-group-title">管理</div>
-                    <div class="tab" data-page="proxies">                        代理
-                    </div>
-                    <div class="tab" data-page="config">                        系统配置
-                    </div>
+                <div class="tab" data-page="proxies">                        隧道预览
                 </div>
-                <div class="nav-group">
-                    <div class="nav-group-title">安全</div>
-                    <div class="tab" data-page="security">                        安全中心
-                    </div>
+                <div class="tab" data-page="security">                        安全中心
                 </div>
             </nav>
 
@@ -545,7 +529,6 @@
                             <div class="security-feature">会话超时</div>
                             <div class="security-feature">安全响应头</div>
                             <div class="security-feature">HttpOnly Cookie</div>
-                            <div class="security-feature">AI 智能巡查</div>
                         </div>
                     </div>
 
@@ -571,11 +554,11 @@
                 <!-- 代理页面 -->
                 <div class="page" id="proxiesPage">
                     <div class="page-head">
-                        <h2>代理管理</h2>
-                        <p>查看与维护全部穿透隧道</p>
+                        <h2>隧道预览</h2>
+                        <p>全部穿透隧道一览</p>
                     </div>
                     <div class="card">
-                        <div class="card-title">全部代理</div>
+                        <div class="card-title">全部隧道</div>
                         <table class="proxy-table">
                             <thead>
                                 <tr>
@@ -595,24 +578,11 @@
                     </div>
                 </div>
 
-                <!-- 配置页面 -->
-                <div class="page" id="configPage">
-                    <div class="page-head">
-                        <h2>系统配置</h2>
-                        <p>服务端运行参数（只读）</p>
-                    </div>
-                    <div class="card">
-                        <div class="card-title">运行参数</div>
-                        <div id="configBody"></div>
-                        <div class="config-note">⚙️ 在线修改配置暂不支持，请编辑 <code>server.yaml</code> 后重启服务生效。</div>
-                    </div>
-                </div>
-
                 <!-- 安全页面 -->
                 <div class="page" id="securityPage">
                     <div class="page-head">
                         <h2>安全中心</h2>
-                        <p>可调整安全防护策略，并配置 AI 定时巡查</p>
+                        <p>可调整安全防护策略与实时安全监控</p>
                     </div>
 
                     <!-- 安全策略设置 -->
@@ -646,56 +616,6 @@
                             <button class="btn-sm" onclick="saveSecurity()">保存安全设置</button>
                             <span class="save-hint" id="secSaveHint"></span>
                         </div>
-                    </div>
-
-                    <!-- AI 智能巡查 -->
-                    <div class="card ai-card">
-                        <div class="card-title">🤖 AI 智能巡查</div>
-                        <div class="form-grid">
-                            <label class="switch-row" style="grid-column:1/-1"><span>启用 AI 定时巡查</span><input type="checkbox" id="aiEnabled" class="switch"></label>
-                            <div class="form-group">
-                                <label>API Base URL</label>
-                                <input type="text" id="aiBaseURL" placeholder="https://api.openai.com/v1">
-                            </div>
-                            <div class="form-group">
-                                <label>API Key</label>
-                                <input type="password" id="aiAPIKey" placeholder="sk-...（留空则不修改）">
-                            </div>
-                            <div class="form-group">
-                                <label>模型</label>
-                                <input type="text" id="aiModel" placeholder="gpt-4o-mini">
-                            </div>
-                            <div class="form-group">
-                                <label>巡查间隔（分钟）</label>
-                                <input type="number" id="aiInterval" min="5" max="1440">
-                            </div>
-                            <div class="form-group" style="grid-column:1/-1">
-                                <label>自定义巡查提示词（可选）</label>
-                                <textarea id="aiPrompt" rows="3" placeholder="留空使用内置提示词：分析最近日志是否存在异常/攻击迹象"></textarea>
-                            </div>
-                            <div class="form-group" style="grid-column:1/-1">
-                                <label>Webhook 告警地址（可选）</label>
-                                <input type="text" id="aiWebhookURL" placeholder="https://example.com/hook（巡查发现 warn/danger 时通知）">
-                            </div>
-                        </div>
-                        <div class="form-actions">
-                            <button class="btn-sm" onclick="saveAIConfig()">保存 AI 配置</button>
-                            <button class="btn-sm btn-ghost" onclick="triggerPatrol()">立即巡查</button>
-                            <span class="save-hint" id="aiSaveHint"></span>
-                        </div>
-                    </div>
-
-                    <!-- 巡查结果 -->
-                    <div class="card">
-                        <div class="card-title">📋 最近巡查结果</div>
-                        <div class="log-filters" id="patrolFilters" style="margin-bottom:14px;">
-                            <button class="filter-btn active" onclick="filterPatrol('all', this)">全部</button>
-                            <button class="filter-btn" onclick="filterPatrol('ok', this)">正常</button>
-                            <button class="filter-btn" onclick="filterPatrol('warn', this)">警告</button>
-                            <button class="filter-btn" onclick="filterPatrol('danger', this)">危险</button>
-                            <button class="filter-btn" onclick="filterPatrol('error', this)">错误</button>
-                        </div>
-                        <div id="aiPatrolBody"><div class="empty">暂无巡查记录</div></div>
                     </div>
 
                     <!-- 底层加密保障（常开） -->
@@ -744,26 +664,6 @@
                     </div>
                 </div>
 
-                <div class="page" id="logsPage">
-                    <div class="page-head">
-                        <h2>运行日志</h2>
-                        <p>服务端实时运行记录</p>
-                    </div>
-                    <div class="log-container">
-                        <div class="log-header">
-                            <h3>运行日志</h3>
-                            <div class="log-filters">
-                                <button class="filter-btn active" onclick="filterLogs('all', this)">全部</button>
-                                <button class="filter-btn" onclick="filterLogs('info', this)">信息</button>
-                                <button class="filter-btn" onclick="filterLogs('warn', this)">警告</button>
-                                <button class="filter-btn" onclick="filterLogs('error', this)">错误</button>
-                            </div>
-                        </div>
-                        <div class="log-content" id="logContent">
-                            <div class="log-line"><span class="log-time">--:--:--</span>加载中...</div>
-                        </div>
-                    </div>
-                </div>
             </div>
 
             <div class="footer">
@@ -774,9 +674,6 @@
 
     <script>
         let csrfToken = '';
-        let currentLogFilter = 'all';
-        let allLogs = [];
-        let currentPatrolFilter = 'all';
 
         // 检查登录状态（尝试加载数据，如果401则显示登录页）
         checkLoginStatus();
@@ -872,14 +769,8 @@
                 document.getElementById(page + 'Page').classList.add('active');
 
                 // 懒加载对应页面数据
-                if (page === 'logs') {
-                    loadLogs();
-                } else if (page === 'config') {
-                    loadConfig();
-                } else if (page === 'security') {
+                if (page === 'security') {
                     loadSecurity();
-                    loadAIConfig();
-                    loadAIPatrol();
                     loadSecurityStatus();
                     loadSecurityEvents();
                 }
@@ -960,35 +851,6 @@
             `).join('');
         }
 
-        // 加载配置（/api/config + /api/status）
-        async function loadConfig() {
-            try {
-                const [cfgRes, stRes] = await Promise.all([
-                    fetch('/api/config', { credentials: 'same-origin' }),
-                    fetch('/api/status', { credentials: 'same-origin' })
-                ]);
-                if (cfgRes.status === 401 || stRes.status === 401) { logout(); return; }
-                const cfg = await cfgRes.json();
-                const st = await stRes.json();
-                renderConfig(cfg, st);
-            } catch (err) {
-                console.error('加载配置失败:', err);
-                document.getElementById('configBody').innerHTML = '<div class="empty">加载失败</div>';
-            }
-        }
-        function renderConfig(cfg, st) {
-            const rows = [
-                ['服务版本', st.version || '--'],
-                ['隧道监听端口', st.bindPort || '--'],
-                ['Web 监听地址', cfg.web_addr || '--'],
-                ['Web 监听端口', cfg.web_port || '--']
-            ];
-            document.getElementById('configBody').innerHTML = rows.map(([k, v]) =>
-                `<div class="kv"><span class="kv-k">${k}</span><span class="kv-v">${v}</span></div>`
-            ).join('');
-        }
-
-        // 加载安全中心（/api/security）
         // 加载安全中心（/api/security）—— 填充可调表单
         async function loadSecurity() {
             try {
@@ -1046,115 +908,6 @@
             }
         }
 
-        // 加载 AI 配置
-        async function loadAIConfig() {
-            try {
-                const res = await fetch('/api/ai-config', { credentials: 'same-origin' });
-                if (res.status === 401) { logout(); return; }
-                const d = await res.json();
-                document.getElementById('aiEnabled').checked = !!d.enabled;
-                document.getElementById('aiBaseURL').value = d.base_url || '';
-                document.getElementById('aiAPIKey').value = '';
-                document.getElementById('aiModel').value = d.model || '';
-                document.getElementById('aiInterval').value = d.interval_min || 30;
-                document.getElementById('aiPrompt').value = d.prompt || '';
-                document.getElementById('aiWebhookURL').value = d.webhook_url || '';
-            } catch (err) {
-                console.error('加载 AI 配置失败:', err);
-            }
-        }
-
-        // 保存 AI 配置
-        async function saveAIConfig() {
-            const hint = document.getElementById('aiSaveHint');
-            const body = {
-                enabled: document.getElementById('aiEnabled').checked,
-                base_url: document.getElementById('aiBaseURL').value.trim(),
-                api_key: document.getElementById('aiAPIKey').value,
-                model: document.getElementById('aiModel').value.trim(),
-                interval_min: parseInt(document.getElementById('aiInterval').value) || 30,
-                prompt: document.getElementById('aiPrompt').value.trim(),
-                webhook_url: document.getElementById('aiWebhookURL').value.trim()
-            };
-            try {
-                const res = await fetch('/api/ai-config', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
-                    credentials: 'same-origin',
-                    body: JSON.stringify(body)
-                });
-                const data = await res.json();
-                if (data.success) {
-                    hint.textContent = '已保存并应用 ✓'; hint.className = 'save-hint';
-                    setTimeout(() => hint.textContent = '', 2500);
-                } else {
-                    hint.textContent = data.error || '保存失败'; hint.className = 'save-hint err';
-                }
-            } catch (err) {
-                hint.textContent = '网络错误'; hint.className = 'save-hint err';
-            }
-        }
-
-        // 立即触发 AI 巡查
-        async function triggerPatrol() {
-            const hint = document.getElementById('aiSaveHint');
-            hint.textContent = '巡查中...'; hint.className = 'save-hint';
-            try {
-                const res = await fetch('/api/ai-patrol', {
-                    method: 'POST',
-                    headers: { 'X-CSRF-Token': csrfToken },
-                    credentials: 'same-origin'
-                });
-                const data = await res.json();
-                if (data.success) {
-                    hint.textContent = '已触发巡查 ✓'; setTimeout(() => hint.textContent = '', 2500);
-                    loadAIPatrol();
-                } else {
-                    hint.textContent = data.error || '巡查失败'; hint.className = 'save-hint err';
-                }
-            } catch (err) {
-                hint.textContent = '网络错误'; hint.className = 'save-hint err';
-            }
-        }
-
-        // 加载巡查结果
-        async function loadAIPatrol() {
-            try {
-                const res = await fetch('/api/ai-patrol', { credentials: 'same-origin' });
-                if (res.status === 401) { logout(); return; }
-                const d = await res.json();
-                let list = d.patrols || [];
-                if (currentPatrolFilter !== 'all') {
-                    list = list.filter(p => p.level === currentPatrolFilter);
-                }
-                const body = document.getElementById('aiPatrolBody');
-                if (list.length === 0) {
-                    body.innerHTML = '<div class="empty">暂无巡查记录</div>';
-                    return;
-                }
-                body.innerHTML = list.slice().reverse().map(p => `
-                    <div class="patrol-item">
-                        <div class="patrol-head">
-                            <span class="patrol-level ${p.level}">${levelText(p.level)}</span>
-                            <span class="patrol-summary">${escapeHtml(p.summary)}</span>
-                            <span class="patrol-time">${p.time}</span>
-                        </div>
-                        ${p.details ? `<div class="patrol-details">${escapeHtml(p.details)}</div>` : ''}
-                    </div>
-                `).join('');
-            } catch (err) {
-                console.error('加载巡查结果失败:', err);
-            }
-        }
-
-        // 巡查结果按等级筛选
-        function filterPatrol(level, btn) {
-            currentPatrolFilter = level;
-            document.querySelectorAll('#patrolFilters .filter-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            loadAIPatrol();
-        }
-
         function fmtBytes(b) {
             if (!b) return '0B';
             const units = ['B', 'KB', 'MB', 'GB', 'TB'];
@@ -1171,66 +924,7 @@
             if (!s) return '';
             return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
         }
-async function loadLogs() {
-            try {
-                const res = await fetch('/api/logs', {
-                    credentials: 'same-origin'
-                });
 
-                if (res.status === 401) {
-                    logout();
-                    return;
-                }
-
-                const data = await res.json();
-                allLogs = data.logs || [];
-                renderLogs();
-            } catch (err) {
-                console.error('加载日志失败:', err);
-            }
-        }
-
-        // 过滤日志
-        function filterLogs(level, btn) {
-            currentLogFilter = level;
-            document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            renderLogs();
-        }
-
-        // 渲染日志
-        function renderLogs() {
-            const logContent = document.getElementById('logContent');
-            let logs = allLogs;
-
-            if (currentLogFilter !== 'all') {
-                logs = allLogs.filter(log => log.level === currentLogFilter);
-            }
-
-            if (logs.length > 0) {
-                logContent.innerHTML = logs.map(log => `
-                    <div class="log-line">
-                        <span class="log-time">${log.time}</span>
-                        <span class="log-level ${log.level}">[${log.level.toUpperCase()}]</span>
-                        ${log.message}
-                    </div>
-                `).join('');
-            } else {
-                logContent.innerHTML = '<div class="log-line"><span class="log-time">--:--:--</span>暂无日志</div>';
-            }
-        }
-
-        // 定时刷新日志（如果在日志页面）
-        setInterval(() => {
-            if (document.getElementById('logsPage').classList.contains('active')) {
-                loadLogs();
-            }
-            if (document.getElementById('securityPage').classList.contains('active')) {
-                loadAIPatrol();
-                loadSecurityStatus();
-                loadSecurityEvents();
-            }
-        }, 10000);
     
         // 实时安全状态：活动会话 + 被锁 IP
         async function loadSecurityStatus() {

@@ -22,10 +22,9 @@ type SecuritySettings struct {
 	CustomCSP         string `json:"custom_csp"`
 }
 
-// AISettings AI 巡查配置（OpenAI 兼容 /v1/chat/completions）
+// WebSettings 持久化设置
 type WebSettings struct {
 	Security          SecuritySettings `json:"security"`
-	AI                AISettings       `json:"ai"`
 	AdminPasswordHash string           `json:"admin_password_hash,omitempty"`
 	AdminPasswordSalt string           `json:"admin_password_salt,omitempty"`
 }
@@ -69,9 +68,8 @@ func (ws *WebServer) handleSecurity(w http.ResponseWriter, r *http.Request) {
 		ws.secMu.Lock()
 		ws.security = req
 		sec := ws.security
-		ai := ws.ai
 		ws.secMu.Unlock()
-		if err := ws.saveSettings(sec, ai, ws.passwordHash, ws.passwordSalt); err != nil {
+		if err := ws.saveSettings(sec, ws.passwordHash, ws.passwordSalt); err != nil {
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "保存失败: " + err.Error()})
 			return
 		}
@@ -124,7 +122,7 @@ func defaultSecuritySettings() SecuritySettings {
 }
 
 func loadWebSettings(path string) *WebSettings {
-	ws := &WebSettings{Security: defaultSecuritySettings(), AI: defaultAISettings()}
+	ws := &WebSettings{Security: defaultSecuritySettings()}
 	if path == "" {
 		return ws
 	}
@@ -136,11 +134,11 @@ func loadWebSettings(path string) *WebSettings {
 	return ws
 }
 
-func (ws *WebServer) saveSettings(sec SecuritySettings, ai AISettings, pwdHash, pwdSalt string) error {
+func (ws *WebServer) saveSettings(sec SecuritySettings, pwdHash, pwdSalt string) error {
 	if ws.settingsFile == "" {
 		return nil
 	}
-	data, err := json.MarshalIndent(WebSettings{Security: sec, AI: ai, AdminPasswordHash: pwdHash, AdminPasswordSalt: pwdSalt}, "", "  ")
+	data, err := json.MarshalIndent(WebSettings{Security: sec, AdminPasswordHash: pwdHash, AdminPasswordSalt: pwdSalt}, "", "  ")
 	if err != nil {
 		return err
 	}
@@ -315,9 +313,8 @@ func (ws *WebServer) handleChangePassword(w http.ResponseWriter, r *http.Request
 
 	ws.secMu.RLock()
 	sec := ws.security
-	ai := ws.ai
 	ws.secMu.RUnlock()
-	if err := ws.saveSettings(sec, ai, newHash, newSalt); err != nil {
+	if err := ws.saveSettings(sec, newHash, newSalt); err != nil {
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "保存失败: " + err.Error()})
 		return
 	}
