@@ -1,1017 +1,430 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>NexusLink 管理面板</title>
-    <style>
-        :root {
-            --brand: #4f6ef7;
-            --brand-2: #7c4dff;
-            --brand-grad: linear-gradient(135deg, #4f6ef7 0%, #7c4dff 100%);
-            --ok: #2bb673;
-            --warn: #f6a609;
-            --danger: #f0506e;
-            --bg: #f4f6fb;
-            --card: #ffffff;
-            --line: #eef0f6;
-            --text: #1f2733;
-            --muted: #8a93a6;
-            --shadow: 0 6px 24px rgba(45, 55, 92, 0.08);
-            --shadow-hover: 0 10px 34px rgba(79, 110, 247, 0.18);
-        }
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
-            background: var(--bg);
-            color: var(--text);
-            line-height: 1.6;
-            -webkit-font-smoothing: antialiased;
-        }
-
-        /* ===== 登录页面 ===== */
-        .login-page {
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            background: radial-gradient(1200px 600px at 20% 10%, #e9edff 0%, transparent 60%),
-                        radial-gradient(1000px 500px at 90% 90%, #f3e9ff 0%, transparent 55%),
-                        var(--bg);
-            padding: 20px;
-        }
-        .login-box {
-            background: var(--card);
-            padding: 44px 40px 36px;
-            border-radius: 18px;
-            box-shadow: var(--shadow);
-            width: 100%;
-            max-width: 380px;
-            animation: rise .5s cubic-bezier(.2,.8,.2,1);
-        }
-        @keyframes rise { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: none; } }
-        .brand {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 12px;
-            margin-bottom: 22px;
-        }
-        .brand .logo {
-            width: 44px; height: 44px;
-            border-radius: 12px;
-            background: var(--brand-grad);
-            display: flex; align-items: center; justify-content: center;
-            box-shadow: 0 6px 16px rgba(79,110,247,.35);
-        }
-        .brand .logo svg { width: 24px; height: 24px; }
-        .brand-name { font-size: 22px; font-weight: 700; letter-spacing: .5px; }
-        .login-header { text-align: center; margin-bottom: 26px; }
-        .login-header h1 { font-size: 20px; font-weight: 600; margin-bottom: 6px; }
-        .login-header p { color: var(--muted); font-size: 13px; }
-        .form-group { margin-bottom: 18px; }
-        .form-group label { display: block; color: #5b6678; font-size: 13px; margin-bottom: 8px; font-weight: 500; }
-        .form-group input {
-            width: 100%;
-            padding: 12px 14px;
-            border: 1.5px solid var(--line);
-            border-radius: 10px;
-            font-size: 14px;
-            outline: none;
-            background: #fbfcfe;
-            transition: border-color .2s, box-shadow .2s;
-        }
-        .form-group input:focus {
-            border-color: var(--brand);
-            box-shadow: 0 0 0 4px rgba(79,110,247,.12);
-            background: #fff;
-        }
-        .btn {
-            width: 100%;
-            padding: 13px;
-            background: var(--brand-grad);
-            color: #fff;
-            border: none;
-            border-radius: 10px;
-            font-size: 15px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: transform .15s, box-shadow .2s, opacity .2s;
-            box-shadow: 0 8px 20px rgba(79,110,247,.28);
-        }
-        .btn:hover { box-shadow: 0 12px 26px rgba(79,110,247,.38); transform: translateY(-1px); }
-        .btn:active { transform: translateY(0); opacity: .92; }
-        .error-msg {
-            color: var(--danger);
-            font-size: 13px;
-            margin-top: 12px;
-            text-align: center;
-            display: none;
-            background: #fdeef1;
-            padding: 8px;
-            border-radius: 8px;
-        }
-        .security-tip {
-            margin-top: 22px;
-            padding: 14px;
-            background: linear-gradient(135deg, #eafaf1 0%, #e6f7ee 100%);
-            border: 1px solid #c8ecd6;
-            border-radius: 10px;
-            font-size: 12px;
-            color: #2c9c63;
-            line-height: 1.6;
-        }
-        .security-tip strong { display: block; margin-bottom: 4px; }
-
-        /* ===== 主界面（侧边栏布局） ===== */
-        .main-page { display: none; min-height: 100vh; }
-        .sidebar {
-            width: 248px;
-            flex-shrink: 0;
-            background: var(--card);
-            border-right: 1px solid var(--line);
-            display: flex;
-            flex-direction: column;
-            position: fixed;
-            top: 0;
-            left: 0;
-            bottom: 0;
-            height: 100vh;
-            z-index: 100;
-        }
-        .side-brand {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 20px 22px;
-            border-bottom: 1px solid var(--line);
-        }
-        .side-brand .logo {
-            width: 38px; height: 38px;
-            border-radius: 11px;
-            background: var(--brand-grad);
-            display: flex; align-items: center; justify-content: center;
-            box-shadow: 0 5px 14px rgba(79,110,247,.32);
-        }
-        .side-brand .logo svg { width: 20px; height: 20px; }
-        .side-name { font-size: 16px; font-weight: 700; line-height: 1.2; }
-        .side-sub { font-size: 12px; color: var(--muted); }
-        .side-nav { flex: 1; overflow-y: auto; padding: 18px 14px; }
-        .nav-group { margin-bottom: 18px; }
-        .nav-group-title {
-            font-size: 11px; font-weight: 600; color: #aab2c2;
-            letter-spacing: .6px; padding: 0 12px 8px;
-        }
-        .tab {
-            display: flex; align-items: center; gap: 11px;
-            padding: 11px 14px; margin-bottom: 4px;
-            border-radius: 10px; cursor: pointer;
-            color: #5b6678; font-size: 14px; font-weight: 500;
-            transition: all .18s;
-        }
-        .tab:hover { background: #f4f6fb; color: var(--brand); }
-        .tab.active {
-            background: var(--brand-grad);
-            color: #fff;
-            box-shadow: 0 6px 16px rgba(79,110,247,.28);
-        }
-        .side-footer {
-            padding: 16px 18px;
-            border-top: 1px solid var(--line);
-            display: flex; align-items: center; gap: 10px;
-        }
-        .version-pill {
-            background: #eef1ff; color: var(--brand);
-            padding: 4px 11px; border-radius: 20px;
-            font-size: 12px; font-weight: 500;
-        }
-        .logout-btn {
-            margin-left: auto;
-            padding: 6px 14px;
-            background: #fff;
-            border: 1px solid var(--line);
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 13px;
-            color: #5b6678;
-            transition: all .2s;
-        }
-        .logout-btn:hover { color: var(--danger); border-color: #fbc4c4; background: #fef0f0; }
-
-        .content { flex: 1; min-width: 0; display: flex; flex-direction: column; margin-left: 248px; }
-        .container { max-width: 1180px; width: 100%; margin: 0 auto; padding: 26px; }
-
-        .page { display: none; }
-        .page.active { display: block; animation: fade .3s ease; }
-        @keyframes fade { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
-
-        .page-head { margin-bottom: 22px; }
-        .page-head h2 { font-size: 21px; font-weight: 600; }
-        .page-head p { color: var(--muted); font-size: 13px; margin-top: 2px; }
-
-        /* 统计卡片 */
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-            gap: 18px;
-            margin-bottom: 22px;
-        }
-        .stat-card {
-            background: var(--card);
-            border-radius: 14px;
-            padding: 22px 22px 20px;
-            box-shadow: var(--shadow);
-            position: relative;
-            overflow: hidden;
-            transition: transform .2s, box-shadow .2s;
-        }
-        .stat-card::before {
-            content: "";
-            position: absolute; left: 0; top: 0; bottom: 0;
-            width: 4px; background: var(--brand-grad);
-            border-radius: 4px 0 0 4px;
-        }
-        .stat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); }
-        .stat-label { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
-        .stat-value { font-size: 30px; font-weight: 700; color: var(--text); letter-spacing: .5px; }
-        .stat-value.online { color: var(--ok); }
-        .stat-value.offline { color: var(--muted); }
-
-        /* 卡片 */
-        .card {
-            background: var(--card);
-            border-radius: 14px;
-            padding: 22px;
-            margin-bottom: 22px;
-            box-shadow: var(--shadow);
-        }
-        .card-title {
-            font-size: 16px;
-            font-weight: 600;
-            margin-bottom: 16px;
-            color: var(--text);
-            display: flex; align-items: center; gap: 8px;
-        }
-        .card-title::before {
-            content: ""; width: 4px; height: 16px; border-radius: 3px; background: var(--brand-grad);
-        }
-
-        /* 安全卡片（概览内） */
-        .security-card {
-            background: linear-gradient(135deg, #eefcf4 0%, #e7f7ef 100%);
-            border: 1px solid #c8ecd6;
-        }
-        .security-card .card-title { color: #2c9c63; }
-        .security-card .card-title::before { background: linear-gradient(135deg, #2bb673, #2bbf8a); }
-        .security-features { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; }
-        .security-feature {
-            display: flex; align-items: center; gap: 8px;
-            font-size: 13px; color: #2c9c63; font-weight: 500;
-        }
-        .security-feature::before {
-            content: "✓";
-            width: 18px; height: 18px;
-            background: var(--ok); color: #fff;
-            border-radius: 50%;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 12px; font-weight: bold; flex-shrink: 0;
-        }
-
-        /* 表格 */
-        .proxy-table { width: 100%; border-collapse: collapse; }
-        .proxy-table th, .proxy-table td {
-            padding: 13px 16px;
-            text-align: left;
-            border-bottom: 1px solid var(--line);
-            font-size: 14px;
-        }
-        .proxy-table th { color: var(--muted); font-weight: 500; background: #fafbfe; font-size: 13px; }
-        .proxy-table tbody tr { transition: background .15s; }
-        .proxy-table tbody tr:hover { background: #f7f9ff; }
-        .proxy-table tr:last-child td { border-bottom: none; }
-
-        .status-badge {
-            display: inline-flex; align-items: center; gap: 6px;
-            padding: 3px 11px;
-            border-radius: 20px;
-            font-size: 12px;
-            font-weight: 500;
-        }
-        .status-badge::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
-        .status-badge.active { background: #e7f8ef; color: var(--ok); }
-        .status-badge.inactive { background: #eef0f4; color: var(--muted); }
-        .empty { text-align: center; padding: 40px; color: var(--muted); font-size: 14px; }
-
-        /* 配置页：键值 */
-        .kv { display: flex; justify-content: space-between; align-items: center; padding: 13px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
-        .kv:last-of-type { border-bottom: none; }
-        .kv-k { color: var(--muted); }
-        .kv-v { font-weight: 600; color: var(--text); font-family: "SF Mono", Monaco, monospace; }
-        .config-note {
-            margin-top: 16px; padding: 12px 14px;
-            background: #fff7e6; border: 1px solid #ffe1a8; border-radius: 10px;
-            font-size: 13px; color: #9a6b00; line-height: 1.6;
-        }
-        .config-note code { background: #fff; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); font-family: monospace; }
-
-        /* 安全中心：清单 */
-        .sec-row { display: flex; align-items: center; gap: 12px; padding: 13px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
-        .sec-row:last-child { border-bottom: none; }
-        .sec-ico { width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: bold; flex-shrink: 0; }
-        .sec-ico.on { background: var(--ok); color: #fff; }
-        .sec-ico.off { background: #f4f4f5; color: #c0c4cc; }
-        .sec-label { flex: 1; color: var(--text); }
-        .sec-val { color: var(--muted); font-size: 13px; font-family: "SF Mono", Monaco, monospace; }
-
-        /* 日志 */
-        .log-container {
-            background: var(--card);
-            border-radius: 14px;
-            padding: 22px;
-            box-shadow: var(--shadow);
-            height: calc(100vh - 210px);
-            display: flex;
-            flex-direction: column;
-        }
-        .log-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-        .log-header h3 { font-size: 16px; font-weight: 600; color: var(--text); }
-        .log-filters { display: flex; gap: 8px; }
-        .filter-btn {
-            padding: 5px 14px;
-            background: #f4f6fb;
-            border: 1px solid var(--line);
-            border-radius: 8px;
-            cursor: pointer;
-            font-size: 12px;
-            color: var(--muted);
-            transition: all .2s;
-        }
-        .filter-btn:hover { color: var(--brand); border-color: #c9d4fb; }
-        .filter-btn.active { background: #eef1ff; color: var(--brand); border-color: #c9d4fb; font-weight: 500; }
-        .log-content {
-            flex: 1;
-            overflow-y: auto;
-            background: #0f1320;
-            border-radius: 10px;
-            padding: 16px 18px;
-            font-family: "SF Mono", Monaco, Inconsolata, "Roboto Mono", monospace;
-            font-size: 13px;
-            line-height: 1.85;
-            color: #c7d0e0;
-        }
-        .log-line { margin-bottom: 3px; }
-        .log-time { color: #5b667e; margin-right: 12px; }
-        .log-level { display: inline-block; width: 52px; font-weight: 600; margin-right: 8px; }
-        .log-level.info { color: #6aa8ff; }
-        .log-level.warn { color: var(--warn); }
-        .log-level.error { color: #ff708a; }
-
-        .footer { text-align: center; padding: 22px; color: #b6bdca; font-size: 12px; }
-
-        /* 响应式：侧边栏转顶部横条 */
-        @media (max-width: 768px) {
-            .main-page { flex-direction: column; }
-            .content { margin-left: 0; }
-            .sidebar {
-                width: 100%; height: auto; position: static;
-                flex-direction: row; align-items: center;
-                border-right: none; border-bottom: 1px solid var(--line);
-                overflow-x: auto;
-            }
-            .side-brand { border-bottom: none; border-right: 1px solid var(--line); padding: 14px 16px; }
-            .side-nav { display: flex; gap: 6px; padding: 10px 12px; flex: 1; }
-            .nav-group { margin-bottom: 0; display: flex; align-items: center; gap: 4px; }
-            .nav-group-title { display: none; }
-            .tab { margin-bottom: 0; white-space: nowrap; }
-            .side-footer { margin-left: auto; border-top: none; border-left: 1px solid var(--line); }
-            .container { padding: 16px; }
-            .stats-grid { grid-template-columns: repeat(2, 1fr); }
-        }
-            /* 表单网格 */
-        .form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
-        .form-group { margin-bottom: 0; }
-        .form-group textarea {
-            width: 100%; padding: 10px 14px; border: 1.5px solid var(--line); border-radius: 10px;
-            font-size: 14px; font-family: inherit; outline: none; background: #fbfcfe; resize: vertical;
-            transition: border-color .2s, box-shadow .2s;
-        }
-        .form-group textarea:focus { border-color: var(--brand); box-shadow: 0 0 0 4px rgba(79,110,247,.12); background: #fff; }
-        .toggle-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 20px; margin: 4px 0 18px; }
-        .switch-row { display: flex; align-items: center; justify-content: space-between; font-size: 14px; color: var(--text); cursor: pointer; padding: 7px 0; user-select: none; }
-        .switch { appearance: none; -webkit-appearance: none; width: 44px; height: 24px; border-radius: 24px; background: #d4d9e3; position: relative; cursor: pointer; transition: background .2s; flex-shrink: 0; outline: none; }
-        .switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .2s; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
-        .switch:checked { background: var(--brand); }
-        .switch:checked::after { transform: translateX(20px); }
-        .form-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
-        .btn-sm { padding: 10px 20px; background: var(--brand-grad); color: #fff; border: none; border-radius: 9px; font-size: 14px; font-weight: 600; cursor: pointer; transition: transform .15s, box-shadow .2s; }
-        .btn-sm:hover { transform: translateY(-1px); box-shadow: 0 8px 18px rgba(79,110,247,.3); }
-        .btn-ghost { background: #fff; color: var(--brand); border: 1px solid #c9d4fb; box-shadow: none; }
-        .btn-ghost:hover { background: #eef1ff; box-shadow: none; }
-        .save-hint { font-size: 13px; color: var(--ok); }
-        .save-hint.err { color: var(--danger); }
-        .patrol-item { padding: 14px 0; border-bottom: 1px solid var(--line); }
-        .patrol-item:last-child { border-bottom: none; }
-        .patrol-head { display: flex; align-items: center; gap: 10px; }
-        .patrol-level { padding: 2px 11px; border-radius: 20px; font-size: 12px; font-weight: 600; }
-        .patrol-level.ok { background: #e7f8ef; color: var(--ok); }
-        .patrol-level.warn { background: #fff3e0; color: var(--warn); }
-        .patrol-level.danger { background: #fdeef1; color: var(--danger); }
-        .patrol-level.error, .patrol-level.info { background: #eef0f4; color: var(--muted); }
-        .patrol-time { color: var(--muted); font-size: 12px; margin-left: auto; }
-        .patrol-summary { font-size: 14px; font-weight: 500; color: var(--text); }
-        .patrol-details { font-size: 13px; color: #5b6678; margin-top: 5px; white-space: pre-wrap; line-height: 1.6; }
-        /* 实时安全状态 / 事件 */
-        .lock-row { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; background: #fdeef1; border: 1px solid #fbc4c4; border-radius: 9px; margin-bottom: 8px; font-size: 13px; color: var(--danger); }
-        .lock-row .btn-sm { padding: 6px 14px; font-size: 13px; }
-        .event-row { padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 13px; display: flex; gap: 10px; align-items: baseline; }
-        .event-row:last-child { border-bottom: none; }
-        .event-time { color: var(--muted); font-family: "SF Mono", Monaco, monospace; flex-shrink: 0; }
-        .event-msg { color: var(--text); }
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NexusLink 管理面板</title>
+<style>
+:root {
+    --brand: #4f6ef7;
+    --brand-2: #7c4dff;
+    --brand-grad: linear-gradient(135deg, #4f6ef7 0%, #7c4dff 100%);
+    --ok: #2bb673;
+    --warn: #f6a609;
+    --danger: #f0506e;
+    --bg: #f4f6fb;
+    --card: #ffffff;
+    --line: #eef0f6;
+    --text: #1f2733;
+    --muted: #8a93a6;
+    --shadow: 0 6px 24px rgba(45,55,92,.08);
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, "PingFang SC", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.6; -webkit-font-smoothing: antialiased;
+}
+/* 登录 */
+.login-page { min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    background: radial-gradient(1200px 600px at 20% 10%, #e9edff 0%, transparent 60%), radial-gradient(1000px 500px at 90% 90%, #f3e9ff 0%, transparent 55%), var(--bg); padding: 20px; }
+.login-box { background: var(--card); padding: 44px 40px 36px; border-radius: 18px; box-shadow: var(--shadow); width: 100%; max-width: 380px; }
+.brand { text-align: center; margin-bottom: 24px; }
+.brand-name { font-size: 28px; font-weight: 700; letter-spacing: .5px; background: var(--brand-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.brand-sub { font-size: 13px; color: var(--muted); margin-top: 4px; }
+.form-group { margin-bottom: 18px; }
+.form-group label { display: block; color: #5b6678; font-size: 13px; margin-bottom: 8px; font-weight: 500; }
+.form-group input, .form-group textarea {
+    width: 100%; padding: 12px 14px; border: 1.5px solid var(--line); border-radius: 10px; font-size: 14px;
+    outline: none; background: #fbfcfe; transition: border-color .2s, box-shadow .2s; font-family: inherit;
+}
+.form-group input:focus, .form-group textarea:focus { border-color: var(--brand); box-shadow: 0 0 0 4px rgba(79,110,247,.12); background: #fff; }
+.btn { width: 100%; padding: 13px; background: var(--brand-grad); color: #fff; border: none; border-radius: 10px; font-size: 15px; font-weight: 600; cursor: pointer; transition: transform .15s, opacity .2s; }
+.btn:hover { transform: translateY(-1px); opacity: .94; }
+.error-msg { color: var(--danger); font-size: 13px; margin-top: 12px; text-align: center; background: #fdeef1; padding: 8px; border-radius: 8px; }
+.security-tip { margin-top: 22px; padding: 14px; background: linear-gradient(135deg, #eafaf1 0%, #e6f7ee 100%); border: 1px solid #c8ecd6; border-radius: 10px; font-size: 12px; color: #2c9c63; line-height: 1.7; }
+.security-tip strong { display: block; margin-bottom: 4px; }
+/* 主界面 */
+.main-page { min-height: 100vh; }
+.sidebar { width: 248px; background: var(--card); border-right: 1px solid var(--line); display: flex; flex-direction: column; position: fixed; top: 0; left: 0; bottom: 0; height: 100vh; z-index: 100; }
+.side-brand { padding: 22px 24px; border-bottom: 1px solid var(--line); }
+.side-name { font-size: 18px; font-weight: 700; background: var(--brand-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.side-sub { font-size: 12px; color: var(--muted); }
+.side-nav { flex: 1; overflow-y: auto; padding: 16px 14px; }
+.tab { display: flex; align-items: center; padding: 12px 16px; margin-bottom: 6px; border-radius: 10px; cursor: pointer; color: #5b6678; font-size: 14px; font-weight: 500; transition: all .18s; }
+.tab:hover { background: #f4f6fb; color: var(--brand); }
+.tab.active { background: var(--brand-grad); color: #fff; box-shadow: 0 6px 16px rgba(79,110,247,.28); }
+.side-footer { padding: 16px 18px; border-top: 1px solid var(--line); display: flex; align-items: center; gap: 10px; }
+.version-pill { background: #eef1ff; color: var(--brand); padding: 4px 11px; border-radius: 20px; font-size: 12px; font-weight: 500; }
+.logout-btn { margin-left: auto; padding: 6px 14px; background: #fff; border: 1px solid var(--line); border-radius: 8px; cursor: pointer; font-size: 13px; color: #5b6678; transition: all .2s; }
+.logout-btn:hover { color: var(--danger); border-color: #fbc4c4; background: #fef0f0; }
+.content { margin-left: 248px; }
+.container { max-width: 1180px; width: 100%; margin: 0 auto; padding: 26px; }
+.page-head { margin-bottom: 22px; }
+.page-head h2 { font-size: 21px; font-weight: 600; }
+.page-head p { color: var(--muted); font-size: 13px; margin-top: 2px; }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 18px; margin-bottom: 22px; }
+.stat-card { background: var(--card); border-radius: 14px; padding: 22px; box-shadow: var(--shadow); position: relative; overflow: hidden; }
+.stat-card::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--brand-grad); }
+.stat-label { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
+.stat-value { font-size: 30px; font-weight: 700; }
+.stat-value.online { color: var(--ok); }
+.stat-value.offline { color: var(--muted); }
+.card { background: var(--card); border-radius: 14px; padding: 22px; margin-bottom: 22px; box-shadow: var(--shadow); }
+.card-title { font-size: 16px; font-weight: 600; margin-bottom: 16px; display: flex; align-items: center; gap: 8px; }
+.card-title::before { content: ""; width: 4px; height: 16px; border-radius: 3px; background: var(--brand-grad); }
+.security-card { background: linear-gradient(135deg, #eefcf4 0%, #e7f7ef 100%); border: 1px solid #c8ecd6; }
+.security-card .card-title { color: #2c9c63; }
+.security-card .card-title::before { background: linear-gradient(135deg, #2bb673, #2bbf8a); }
+.security-features { display: flex; flex-wrap: wrap; gap: 10px 24px; }
+.security-feature { font-size: 13px; color: #2c9c63; font-weight: 500; }
+.proxy-table { width: 100%; border-collapse: collapse; }
+.proxy-table th, .proxy-table td { padding: 13px 16px; text-align: left; border-bottom: 1px solid var(--line); font-size: 14px; }
+.proxy-table th { color: var(--muted); font-weight: 500; background: #fafbfe; font-size: 13px; }
+.proxy-table tbody tr:hover { background: #f7f9ff; }
+.proxy-table tr:last-child td { border-bottom: none; }
+.status-badge { display: inline-block; padding: 3px 11px; border-radius: 20px; font-size: 12px; font-weight: 500; }
+.status-badge.active { background: #e7f8ef; color: var(--ok); }
+.status-badge.inactive { background: #eef0f4; color: var(--muted); }
+.empty { text-align: center; padding: 40px; color: var(--muted); font-size: 14px; }
+.form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; }
+.toggle-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 20px; margin: 4px 0 18px; }
+.switch-row { display: flex; align-items: center; justify-content: space-between; font-size: 14px; cursor: pointer; padding: 7px 0; user-select: none; }
+.switch { appearance: none; -webkit-appearance: none; width: 44px; height: 24px; border-radius: 24px; background: #d4d9e3; position: relative; cursor: pointer; transition: background .2s; flex-shrink: 0; outline: none; }
+.switch::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; transition: transform .2s; box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+.switch:checked { background: var(--brand); }
+.switch:checked::after { transform: translateX(20px); }
+.form-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.btn-sm { padding: 10px 20px; background: var(--brand-grad); color: #fff; border: none; border-radius: 9px; font-size: 14px; font-weight: 600; cursor: pointer; transition: transform .15s, opacity .2s; }
+.btn-sm:hover { transform: translateY(-1px); opacity: .94; }
+.btn-ghost { background: #fff; color: var(--brand); border: 1px solid #c9d4fb; box-shadow: none; }
+.btn-ghost:hover { background: #eef1ff; box-shadow: none; }
+.save-hint { font-size: 13px; color: var(--ok); }
+.save-hint.err { color: var(--danger); }
+.kv { display: flex; justify-content: space-between; align-items: center; padding: 13px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.kv:last-of-type { border-bottom: none; }
+.kv-k { color: var(--muted); }
+.kv-v { font-weight: 600; }
+.sec-row { display: flex; align-items: center; gap: 12px; padding: 13px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.sec-row:last-child { border-bottom: none; }
+.sec-label { flex: 1; }
+.sec-val { color: var(--muted); font-size: 13px; }
+.lock-row { display: flex; align-items: center; justify-content: space-between; padding: 9px 12px; background: #fdeef1; border: 1px solid #fbc4c4; border-radius: 9px; margin-bottom: 8px; font-size: 13px; color: var(--danger); }
+.lock-row .btn-sm { padding: 6px 14px; font-size: 13px; }
+.event-row { padding: 10px 0; border-bottom: 1px solid var(--line); font-size: 13px; display: flex; gap: 10px; align-items: baseline; }
+.event-row:last-child { border-bottom: none; }
+.event-time { color: var(--muted); font-family: monospace; flex-shrink: 0; }
+.event-msg { color: var(--text); }
+.log-level { display: inline-block; width: 52px; font-weight: 600; }
+.log-level.info { color: #6aa8ff; }
+.log-level.warn { color: var(--warn); }
+.log-level.error { color: #ff708a; }
+.footer { text-align: center; padding: 22px; color: #b6bdca; font-size: 12px; }
+@media (max-width: 768px) {
+    .sidebar { width: 100%; height: auto; position: static; flex-direction: row; align-items: center; border-right: none; border-bottom: 1px solid var(--line); overflow-x: auto; }
+    .side-brand { border-bottom: none; border-right: 1px solid var(--line); padding: 14px 16px; }
+    .side-nav { display: flex; gap: 6px; padding: 10px 12px; flex: 1; }
+    .tab { margin-bottom: 0; white-space: nowrap; }
+    .side-footer { margin-left: auto; border-top: none; border-left: 1px solid var(--line); }
+    .content { margin-left: 0; }
+    .container { padding: 16px; }
+    .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    .form-grid, .toggle-grid { grid-template-columns: 1fr; }
+}
 </style>
 </head>
 <body>
-    <!-- 登录页面 -->
-    <div class="login-page" id="loginPage">
-        <div class="login-box">
-            <div class="brand">
-                <span class="logo">
-                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M9 12a3 3 0 0 1 3-3h3a3 3 0 0 1 0 6h-3a3 3 0 0 0 0 6h3a3 3 0 0 0 3-3" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
-                    </svg>
-                </span>
-                <span class="brand-name">NexusLink</span>
-            </div>
-            <div class="login-header">
-                <h1>NexusLink 管理面板</h1>
-                <p>安全内网穿透 · 隧道一键直达</p>
-            </div>
-            <form id="loginForm">
-                <div class="form-group">
-                    <label>管理密码</label>
-                    <input type="password" id="password" placeholder="请输入管理密码" autocomplete="current-password">
-                </div>
-                <button type="submit" class="btn">登 录</button>
-                <div class="error-msg" id="errorMsg">密码错误，请重试</div>
-            </form>
-            <div class="security-tip">
-                <strong>🔒 安全模式已启用</strong>
-                密码加密 · 防暴力破解 · 登录锁定 · 会话超时
-            </div>
-        </div>
-    </div>
+<div id="app"></div>
+<script src="vendor/vue.global.prod.js"></script>
+<script>
+const { createApp } = Vue;
 
-    <!-- 主界面 -->
-    <div class="main-page" id="mainPage">
-        <!-- 侧边栏 -->
-        <aside class="sidebar">
-            <div class="side-brand">
-                <span class="logo">
-                    <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                        <path d="M9 12a3 3 0 0 1 3-3h3a3 3 0 0 1 0 6h-3a3 3 0 0 0 0 6h3a3 3 0 0 0 3-3" stroke="#fff" stroke-width="2" stroke-linecap="round"/>
-                    </svg>
-                </span>
-                <div>
-                    <div class="side-name">NexusLink</div>
-                    <div class="side-sub">安全内网穿透</div>
-                </div>
-            </div>
-
-            <nav class="side-nav">
-                <div class="tab active" data-page="dashboard">                        概览
-                </div>
-                <div class="tab" data-page="proxies">                        隧道预览
-                </div>
-                <div class="tab" data-page="security">                        安全中心
-                </div>
-            </nav>
-
-            <div class="side-footer">
-                <span class="version-pill" id="versionText">v0.3.6</span>
-                <button class="logout-btn" onclick="logout()">退出</button>
-            </div>
-        </aside>
-
-        <!-- 主内容区 -->
-        <main class="content">
-            <div class="container">
-                <!-- 概览页面 -->
-                <div class="page active" id="dashboardPage">
-                    <div class="page-head">
-                        <h2>概览</h2>
-                        <p>实时掌握服务状态与安全防护</p>
-                    </div>
-                    <div class="stats-grid">
-                        <div class="stat-card">
-                            <div class="stat-label">服务状态</div>
-                            <div class="stat-value online" id="serviceStatus">运行中</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-label">客户端连接</div>
-                            <div class="stat-value" id="clientCount">0</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-label">隧道数量</div>
-                            <div class="stat-value" id="proxyCount">0</div>
-                        </div>
-                        <div class="stat-card">
-                            <div class="stat-label">监听端口</div>
-                            <div class="stat-value" id="bindPort" style="font-size: 22px;">--</div>
-                        </div>
-                    </div>
-
-                    <div class="card security-card">
-                        <div class="card-title">🛡️ 安全防护全面开启</div>
-                        <div class="security-features">
-                            <div class="security-feature">密码哈希加密</div>
-                            <div class="security-feature">防暴力破解</div>
-                            <div class="security-feature">登录失败锁定</div>
-                            <div class="security-feature">CSRF 防护</div>
-                            <div class="security-feature">会话超时</div>
-                            <div class="security-feature">安全响应头</div>
-                            <div class="security-feature">HttpOnly Cookie</div>
-                        </div>
-                    </div>
-
-                    <div class="card">
-                        <div class="card-title">隧道列表</div>
-                        <table class="proxy-table">
-                            <thead>
-                                <tr>
-                                    <th>代理名称</th>
-                                    <th>类型</th>
-                                    <th>远程端口</th>
-                                    <th>流量</th>
-                                    <th>状态</th>
-                                </tr>
-                            </thead>
-                            <tbody id="proxyTableBody">
-                                <tr><td colspan="5" class="empty">暂无代理</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <!-- 代理页面 -->
-                <div class="page" id="proxiesPage">
-                    <div class="page-head">
-                        <h2>隧道预览</h2>
-                        <p>全部穿透隧道一览</p>
-                    </div>
-                    <div class="card">
-                        <div class="card-title">全部隧道</div>
-                        <table class="proxy-table">
-                            <thead>
-                                <tr>
-                                    <th>代理名称</th>
-                                    <th>类型</th>
-                                    <th>远程端口</th>
-                                    <th>本地地址</th>
-                                    <th>本地端口</th>
-                                    <th>流量</th>
-                                    <th>状态</th>
-                                </tr>
-                            </thead>
-                            <tbody id="proxyTableBodyFull">
-                                <tr><td colspan="7" class="empty">暂无代理</td></tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-
-                <!-- 安全页面 -->
-                <div class="page" id="securityPage">
-                    <div class="page-head">
-                        <h2>安全中心</h2>
-                        <p>可调整安全防护策略与实时安全监控</p>
-                    </div>
-
-                    <!-- 安全策略设置 -->
-                    <div class="card">
-                        <div class="card-title">🛡️ 安全策略设置</div>
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label>Session 超时（分钟）</label>
-                                <input type="number" id="secSessionTimeout" min="1" max="1440">
-                            </div>
-                            <div class="form-group">
-                                <label>登录失败锁定阈值（次）</label>
-                                <input type="number" id="secRateLimitMax" min="1" max="100">
-                            </div>
-                            <div class="form-group">
-                                <label>锁定时长（分钟）</label>
-                                <input type="number" id="secRateLimitLock" min="1" max="1440">
-                            </div>
-                            <div class="form-group">
-                                <label>自定义 CSP 响应头（可选）</label>
-                                <input type="text" id="secCustomCSP" placeholder="留空使用默认策略">
-                            </div>
-                        </div>
-                        <div class="toggle-grid">
-                            <label class="switch-row"><span>CSRF 防护</span><input type="checkbox" id="secCSRF" class="switch"></label>
-                            <label class="switch-row"><span>安全响应头</span><input type="checkbox" id="secSecHeaders" class="switch"></label>
-                            <label class="switch-row"><span>HttpOnly Cookie</span><input type="checkbox" id="secHttpOnly" class="switch"></label>
-                            <label class="switch-row"><span>SameSite Cookie</span><input type="checkbox" id="secSameSite" class="switch"></label>
-                        </div>
-                        <div class="form-actions">
-                            <button class="btn-sm" onclick="saveSecurity()">保存安全设置</button>
-                            <span class="save-hint" id="secSaveHint"></span>
-                        </div>
-                    </div>
-
-                    <!-- 底层加密保障（常开） -->
-                    <div class="card">
-                        <div class="card-title">🔒 底层加密保障（始终开启）</div>
-                        <div class="sec-row"><span class="sec-ico on">✓</span><span class="sec-label">密码哈希存储（SHA-256 多次迭代）</span><span class="sec-val">常开</span></div>
-                        <div class="sec-row"><span class="sec-ico on">✓</span><span class="sec-label">密码加盐</span><span class="sec-val">常开</span></div>
-                        <div class="sec-row"><span class="sec-ico on">✓</span><span class="sec-label">常量时间比较（防时序攻击）</span><span class="sec-val">常开</span></div>
-                    </div>
-
-                    <!-- 实时安全状态 -->
-                    <div class="card">
-                        <div class="card-title">📡 实时安全状态</div>
-                        <div class="kv"><span class="kv-k">当前活动会话</span><span class="kv-v" id="secActiveSessions">--</span></div>
-                        <div class="kv"><span class="kv-k">被锁定 IP 数</span><span class="kv-v" id="secLockedCount">0</span></div>
-                        <div id="secLockedList" style="margin-top:10px;"></div>
-                    </div>
-
-                    <!-- 安全事件 -->
-                    <div class="card">
-                        <div class="card-title">📜 安全事件</div>
-                        <div id="secEventsBody"><div class="empty">暂无安全事件</div></div>
-                    </div>
-
-                    <!-- 修改密码 -->
-                    <div class="card">
-                        <div class="card-title">🔑 修改管理密码</div>
-                        <div class="form-grid">
-                            <div class="form-group">
-                                <label>当前密码</label>
-                                <input type="password" id="pwCurrent" autocomplete="current-password">
-                            </div>
-                            <div class="form-group">
-                                <label>新密码（至少 6 位）</label>
-                                <input type="password" id="pwNew" autocomplete="new-password">
-                            </div>
-                            <div class="form-group" style="grid-column:1/-1">
-                                <label>确认新密码</label>
-                                <input type="password" id="pwConfirm" autocomplete="new-password">
-                            </div>
-                        </div>
-                        <div class="form-actions">
-                            <button class="btn-sm" onclick="changePassword()">修改密码</button>
-                            <span class="save-hint" id="pwSaveHint"></span>
-                        </div>
-                    </div>
-                </div>
-
-            </div>
-
-            <div class="footer">
-                NexusLink · 安全内网穿透平台
-            </div>
-        </main>
-    </div>
-
-    <script>
-        let csrfToken = '';
-
-        // 检查登录状态（尝试加载数据，如果401则显示登录页）
-        checkLoginStatus();
-
-        // 检查登录状态
-        async function checkLoginStatus() {
+createApp({
+    data() {
+        return {
+            loggedIn: false,
+            page: 'dashboard',
+            loginPassword: '',
+            loginError: '',
+            csrfToken: '',
+            status: { running: true, clientCount: 0, proxyCount: 0, bindPort: '--', version: 'v0.3.6' },
+            sec: { session_timeout_min: 30, rate_limit_max: 5, rate_limit_lock_min: 15, custom_csp: '',
+                   csrf_protection: true, security_headers: true, httponly_cookie: true, samesite_cookie: true },
+            secStatus: { active_sessions: 0, locked_ips: [] },
+            events: [],
+            pw: { current: '', next: '', confirm: '' },
+            hints: { sec: '', secClass: '', pw: '', pwClass: '' }
+        };
+    },
+    computed: {
+        proxies() { return this.status.proxies || []; }
+    },
+    mounted() { this.checkLogin(); setInterval(this.loadData, 30000); },
+    methods: {
+        async checkLogin() {
             try {
-                const res = await fetch('/api/status', {
-                    credentials: 'same-origin'
-                });
-                if (res.ok) {
-                    showMainPage();
-                    loadData();
-                    setInterval(loadData, 30000); // 每30秒刷新
-                } else {
-                    showLoginPage();
-                }
-            } catch (err) {
-                showLoginPage();
-            }
-        }
-
-        // 显示登录页
-        function showLoginPage() {
-            document.getElementById('loginPage').style.display = 'flex';
-            document.getElementById('mainPage').style.display = 'none';
-        }
-
-        // 登录
-        document.getElementById('loginForm').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            const password = document.getElementById('password').value;
-            const errorMsg = document.getElementById('errorMsg');
-
+                const res = await fetch('/api/status', { credentials: 'same-origin' });
+                if (res.ok) { this.loggedIn = true; this.loadData(); }
+            } catch (e) {}
+        },
+        async login() {
             try {
                 const res = await fetch('/api/login', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    credentials: 'same-origin',
-                    body: JSON.stringify({ password })
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'same-origin',
+                    body: JSON.stringify({ password: this.loginPassword })
                 });
-
-                const data = await res.json();
-                if (res.ok && data.success) {
-                    csrfToken = data.csrf_token;
-                    showMainPage();
-                    loadData();
-                    setInterval(loadData, 30000);
+                const d = await res.json();
+                if (res.ok && d.success) {
+                    this.csrfToken = d.csrf_token; this.loggedIn = true; this.loginError = '';
+                    this.loadData();
                 } else {
-                    errorMsg.style.display = 'block';
-                    errorMsg.textContent = data.error || '登录失败';
+                    this.loginError = d.error || '登录失败';
                 }
-            } catch (err) {
-                errorMsg.style.display = 'block';
-                errorMsg.textContent = '网络错误，请重试';
-            }
-        });
-
-        // 显示主界面
-        function showMainPage() {
-            document.getElementById('loginPage').style.display = 'none';
-            document.getElementById('mainPage').style.display = 'flex';
-        }
-
-        // 退出登录
-        async function logout() {
+            } catch (e) { this.loginError = '网络错误'; }
+        },
+        async logout() {
             try {
-                await fetch('/api/logout', {
-                    method: 'POST',
-                    headers: {
-                        'X-CSRF-Token': csrfToken
-                    },
-                    credentials: 'same-origin'
-                });
-            } catch (err) {
-                // 忽略错误
-            }
-            csrfToken = '';
+                await fetch('/api/logout', { method: 'POST', headers: { 'X-CSRF-Token': this.csrfToken }, credentials: 'same-origin' });
+            } catch (e) {}
             location.reload();
-        }
-
-        // 标签切换
-        document.querySelectorAll('.tab').forEach(tab => {
-            tab.addEventListener('click', function() {
-                const page = this.dataset.page;
-
-                // 更新标签状态
-                document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
-                this.classList.add('active');
-
-                // 更新页面显示
-                document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-                document.getElementById(page + 'Page').classList.add('active');
-
-                // 懒加载对应页面数据
-                if (page === 'security') {
-                    loadSecurity();
-                    loadSecurityStatus();
-                    loadSecurityEvents();
-                }
-            });
-        });
-
-        // 加载数据
-        async function loadData() {
+        },
+        switchPage(p) {
+            this.page = p;
+            if (p === 'security') { this.loadSecurity(); this.loadSecurityStatus(); this.loadSecurityEvents(); }
+        },
+        async loadData() {
             try {
-                const res = await fetch('/api/status', {
-                    credentials: 'same-origin'
-                });
-
-                if (res.status === 401) {
-                    logout();
-                    return;
-                }
-
-                const data = await res.json();
-                updateDashboard(data);
-                updateProxyList(data.proxies || []);
-            } catch (err) {
-                console.error('加载数据失败:', err);
-            }
-        }
-
-        // 更新仪表盘
-        function updateDashboard(data) {
-            document.getElementById('versionText').textContent = data.version || 'v0.3.6';
-
-            const serviceStatus = document.getElementById('serviceStatus');
-            if (data.running) {
-                serviceStatus.textContent = '运行中';
-                serviceStatus.className = 'stat-value online';
-            } else {
-                serviceStatus.textContent = '已停止';
-                serviceStatus.className = 'stat-value offline';
-            }
-
-            document.getElementById('clientCount').textContent = data.clientCount || 0;
-            document.getElementById('proxyCount').textContent = data.proxyCount || 0;
-            document.getElementById('bindPort').textContent = data.bindPort || '--';
-        }
-
-        // 更新代理列表
-        function updateProxyList(proxies) {
-            const tbody = document.getElementById('proxyTableBody');
-            const tbodyFull = document.getElementById('proxyTableBodyFull');
-
-            if (proxies.length === 0) {
-                tbody.innerHTML = '<tr><td colspan="4" class="empty">暂无代理</td></tr>';
-                tbodyFull.innerHTML = '<tr><td colspan="6" class="empty">暂无代理</td></tr>';
-                return;
-            }
-
-            // 概览页面的代理列表（简化版）
-            tbody.innerHTML = proxies.map(p => `
-                <tr>
-                    <td>${p.name}</td>
-                    <td>${p.type ? p.type.toUpperCase() : 'TCP'}</td>
-                    <td>${p.remotePort || '--'}</td>
-                    <td>${fmtBytes(p.bytesIn)} ↑ / ${fmtBytes(p.bytesOut)} ↓</td>
-                    <td><span class="status-badge ${p.active ? 'active' : 'inactive'}">${p.active ? '运行中' : '未激活'}</span></td>
-                </tr>
-            `).join('');
-
-            // 代理页面的完整列表
-            tbodyFull.innerHTML = proxies.map(p => `
-                <tr>
-                    <td>${p.name}</td>
-                    <td>${p.type ? p.type.toUpperCase() : 'TCP'}</td>
-                    <td>${p.remotePort || '--'}</td>
-                    <td>${p.localAddr || '--'}</td>
-                    <td>${p.localPort || '--'}</td>
-                    <td>${fmtBytes(p.bytesIn)} ↑ / ${fmtBytes(p.bytesOut)} ↓</td>
-                    <td><span class="status-badge ${p.active ? 'active' : 'inactive'}">${p.active ? '运行中' : '未激活'}</span></td>
-                </tr>
-            `).join('');
-        }
-
-        // 加载安全中心（/api/security）—— 填充可调表单
-        async function loadSecurity() {
+                const res = await fetch('/api/status', { credentials: 'same-origin' });
+                if (res.status === 401) { this.logout(); return; }
+                this.status = await res.json();
+            } catch (e) {}
+        },
+        async loadSecurity() {
             try {
                 const res = await fetch('/api/security', { credentials: 'same-origin' });
-                if (res.status === 401) { logout(); return; }
-                const d = await res.json();
-                document.getElementById('secSessionTimeout').value = d.session_timeout_min || 30;
-                document.getElementById('secRateLimitMax').value = d.rate_limit_max || 5;
-                document.getElementById('secRateLimitLock').value = d.rate_limit_lock_min || 15;
-                document.getElementById('secCustomCSP').value = d.custom_csp || '';
-                document.getElementById('secCSRF').checked = d.csrf_protection !== false;
-                document.getElementById('secSecHeaders').checked = d.security_headers !== false;
-                document.getElementById('secHttpOnly').checked = d.httponly_cookie !== false;
-                document.getElementById('secSameSite').checked = d.samesite_cookie !== false;
-            } catch (err) {
-                console.error('加载安全设置失败:', err);
-            }
-        }
-
-        // 保存安全设置
-        async function saveSecurity() {
-            const hint = document.getElementById('secSaveHint');
-            if (!document.getElementById('secCSRF').checked) {
-                if (!confirm('关闭 CSRF 防护会显著降低安全性，确定要关闭吗？')) {
-                    document.getElementById('secCSRF').checked = true;
-                    return;
-                }
-            }
-            const body = {
-                session_timeout_min: parseInt(document.getElementById('secSessionTimeout').value) || 30,
-                rate_limit_max: parseInt(document.getElementById('secRateLimitMax').value) || 5,
-                rate_limit_lock_min: parseInt(document.getElementById('secRateLimitLock').value) || 15,
-                custom_csp: document.getElementById('secCustomCSP').value.trim(),
-                csrf_protection: document.getElementById('secCSRF').checked,
-                security_headers: document.getElementById('secSecHeaders').checked,
-                httponly_cookie: document.getElementById('secHttpOnly').checked,
-                samesite_cookie: document.getElementById('secSameSite').checked
-            };
+                if (res.status === 401) { this.logout(); return; }
+                this.sec = await res.json();
+            } catch (e) {}
+        },
+        async saveSecurity() {
             try {
                 const res = await fetch('/api/security', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
-                    credentials: 'same-origin',
-                    body: JSON.stringify(body)
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': this.csrfToken },
+                    credentials: 'same-origin', body: JSON.stringify(this.sec)
                 });
-                const data = await res.json();
-                if (data.success) {
-                    hint.textContent = '已保存 ✓'; hint.className = 'save-hint';
-                    setTimeout(() => hint.textContent = '', 2500);
-                } else {
-                    hint.textContent = data.error || '保存失败'; hint.className = 'save-hint err';
-                }
-            } catch (err) {
-                hint.textContent = '网络错误'; hint.className = 'save-hint err';
-            }
-        }
-
-        function fmtBytes(b) {
+                const d = await res.json();
+                this.hints.sec = d.success ? '已保存' : (d.error || '保存失败');
+                this.hints.secClass = d.success ? '' : 'err';
+            } catch (e) { this.hints.sec = '网络错误'; this.hints.secClass = 'err'; }
+        },
+        async loadSecurityStatus() {
+            try {
+                const res = await fetch('/api/security-status', { credentials: 'same-origin' });
+                if (res.status === 401) { this.logout(); return; }
+                this.secStatus = await res.json();
+            } catch (e) {}
+        },
+        async unlockIP(ip) {
+            if (!confirm('确定解锁 ' + ip + ' 吗？')) return;
+            try {
+                await fetch('/api/security-unlock', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': this.csrfToken },
+                    credentials: 'same-origin', body: JSON.stringify({ ip })
+                });
+                this.loadSecurityStatus();
+            } catch (e) {}
+        },
+        async loadSecurityEvents() {
+            try {
+                const res = await fetch('/api/security-events', { credentials: 'same-origin' });
+                if (res.status === 401) { this.logout(); return; }
+                this.events = (await res.json()).events || [];
+            } catch (e) {}
+        },
+        async changePassword() {
+            if (!this.pw.current || !this.pw.next) { this.hints.pw = '请填写完整'; this.hints.pwClass = 'err'; return; }
+            if (this.pw.next.length < 6) { this.hints.pw = '新密码至少 6 位'; this.hints.pwClass = 'err'; return; }
+            if (this.pw.next !== this.pw.confirm) { this.hints.pw = '两次输入不一致'; this.hints.pwClass = 'err'; return; }
+            try {
+                const res = await fetch('/api/change-password', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': this.csrfToken },
+                    credentials: 'same-origin', body: JSON.stringify({ current_password: this.pw.current, new_password: this.pw.next })
+                });
+                const d = await res.json();
+                if (d.success) { alert('密码已修改，请重新登录'); this.logout(); }
+                else { this.hints.pw = d.error || '修改失败'; this.hints.pwClass = 'err'; }
+            } catch (e) { this.hints.pw = '网络错误'; this.hints.pwClass = 'err'; }
+        },
+        fmtBytes(b) {
             if (!b) return '0B';
             const units = ['B', 'KB', 'MB', 'GB', 'TB'];
             let i = 0, v = b;
             while (v >= 1024 && i < units.length - 1) { v /= 1024; i++; }
             return v.toFixed(v >= 100 || i === 0 ? 0 : 1) + units[i];
         }
+    },
+    template: `
+    <div v-if="!loggedIn" class="login-page">
+        <div class="login-box">
+            <div class="brand">
+                <div class="brand-name">NexusLink</div>
+                <div class="brand-sub">安全内网穿透 · 隧道一键直达</div>
+            </div>
+            <div class="form-group">
+                <label>管理密码</label>
+                <input type="password" v-model="loginPassword" @keyup.enter="login" placeholder="请输入管理密码" autocomplete="current-password">
+            </div>
+            <button class="btn" @click="login">登 录</button>
+            <div class="error-msg" v-if="loginError" style="margin-top:12px;">{{ loginError }}</div>
+            <div class="security-tip">
+                <strong>安全模式已启用</strong>
+                密码加密 · 防暴力破解 · 登录锁定 · 会话超时
+            </div>
+        </div>
+    </div>
 
-        function levelText(l) {
-            return ({ ok: '正常', warn: '警告', danger: '危险', error: '错误', info: '信息' })[l] || l || '信息';
-        }
+    <div v-else class="main-page">
+        <aside class="sidebar">
+            <div class="side-brand">
+                <div class="side-name">NexusLink</div>
+                <div class="side-sub">安全内网穿透</div>
+            </div>
+            <nav class="side-nav">
+                <div class="tab" :class="{active: page==='dashboard'}" @click="switchPage('dashboard')">概览</div>
+                <div class="tab" :class="{active: page==='proxies'}" @click="switchPage('proxies')">隧道预览</div>
+                <div class="tab" :class="{active: page==='security'}" @click="switchPage('security')">安全中心</div>
+            </nav>
+            <div class="side-footer">
+                <span class="version-pill">{{ status.version || 'v0.3.6' }}</span>
+                <button class="logout-btn" @click="logout">退出</button>
+            </div>
+        </aside>
 
-        function escapeHtml(s) {
-            if (!s) return '';
-            return s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-        }
+        <main class="content">
+            <div class="container">
+                <!-- 概览 -->
+                <div v-if="page==='dashboard'">
+                    <div class="page-head"><h2>概览</h2><p>实时掌握服务状态与安全防护</p></div>
+                    <div class="stats-grid">
+                        <div class="stat-card"><div class="stat-label">服务状态</div><div class="stat-value" :class="status.running?'online':'offline'">{{ status.running ? '运行中' : '已停止' }}</div></div>
+                        <div class="stat-card"><div class="stat-label">客户端连接</div><div class="stat-value">{{ status.clientCount }}</div></div>
+                        <div class="stat-card"><div class="stat-label">隧道数量</div><div class="stat-value">{{ status.proxyCount }}</div></div>
+                        <div class="stat-card"><div class="stat-label">监听端口</div><div class="stat-value" style="font-size:22px;">{{ status.bindPort }}</div></div>
+                    </div>
+                    <div class="card security-card">
+                        <div class="card-title">安全防护全面开启</div>
+                        <div class="security-features">
+                            <div class="security-feature" v-for="f in ['密码哈希加密','防暴力破解','登录失败锁定','CSRF 防护','会话超时','安全响应头','HttpOnly Cookie']" :key="f">{{ f }}</div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">隧道列表</div>
+                        <table class="proxy-table">
+                            <thead><tr><th>隧道名称</th><th>类型</th><th>远程端口</th><th>流量</th><th>状态</th></tr></thead>
+                            <tbody>
+                                <tr v-if="!proxies.length"><td colspan="5" class="empty">暂无隧道</td></tr>
+                                <tr v-for="p in proxies" :key="p.name">
+                                    <td>{{ p.name }}</td>
+                                    <td>{{ (p.type || 'tcp').toUpperCase() }}</td>
+                                    <td>{{ p.remotePort }}</td>
+                                    <td>{{ fmtBytes(p.bytesIn) }} / {{ fmtBytes(p.bytesOut) }}</td>
+                                    <td><span class="status-badge" :class="p.active ? 'active':'inactive'">{{ p.active ? '运行中' : '未激活' }}</span></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
 
-    
-        // 实时安全状态：活动会话 + 被锁 IP
-        async function loadSecurityStatus() {
-            try {
-                const res = await fetch('/api/security-status', { credentials: 'same-origin' });
-                if (res.status === 401) { logout(); return; }
-                const d = await res.json();
-                document.getElementById('secActiveSessions').textContent = d.active_sessions || 0;
-                document.getElementById('secLockedCount').textContent = (d.locked_ips || []).length;
-                const list = document.getElementById('secLockedList');
-                const locked = d.locked_ips || [];
-                if (locked.length === 0) {
-                    list.innerHTML = '<div style="color:var(--muted);font-size:13px;">无被锁定的 IP</div>';
-                } else {
-                    list.innerHTML = locked.map(x => `
-                        <div class="lock-row">
-                            <span>🚫 ${escapeHtml(x.ip)}（约 ${x.unlock_at} 解锁）</span>
-                            <button class="btn-sm btn-ghost" onclick="unlockIP('${escapeHtml(x.ip)}')">解锁</button>
-                        </div>`).join('');
-                }
-            } catch (err) { console.error('加载安全状态失败:', err); }
-        }
+                <!-- 隧道预览 -->
+                <div v-else-if="page==='proxies'">
+                    <div class="page-head"><h2>隧道预览</h2><p>全部穿透隧道一览</p></div>
+                    <div class="card">
+                        <div class="card-title">全部隧道</div>
+                        <table class="proxy-table">
+                            <thead><tr><th>隧道名称</th><th>类型</th><th>远程端口</th><th>本地地址</th><th>本地端口</th><th>流量</th><th>状态</th></tr></thead>
+                            <tbody>
+                                <tr v-if="!proxies.length"><td colspan="7" class="empty">暂无隧道</td></tr>
+                                <tr v-for="p in proxies" :key="p.name">
+                                    <td>{{ p.name }}</td>
+                                    <td>{{ (p.type || 'tcp').toUpperCase() }}</td>
+                                    <td>{{ p.remotePort }}</td>
+                                    <td>{{ p.localAddr || '--' }}</td>
+                                    <td>{{ p.localPort || '--' }}</td>
+                                    <td>{{ fmtBytes(p.bytesIn) }} / {{ fmtBytes(p.bytesOut) }}</td>
+                                    <td><span class="status-badge" :class="p.active ? 'active':'inactive'">{{ p.active ? '运行中' : '未激活' }}</span></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
 
-        // 手动解锁 IP
-        async function unlockIP(ip) {
-            if (!confirm('确定解锁 IP ' + ip + ' 吗？')) return;
-            try {
-                const res = await fetch('/api/security-unlock', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
-                    credentials: 'same-origin',
-                    body: JSON.stringify({ ip })
-                });
-                const data = await res.json();
-                if (data.success) loadSecurityStatus();
-            } catch (err) { console.error('解锁失败:', err); }
-        }
-
-        // 安全事件流
-        async function loadSecurityEvents() {
-            try {
-                const res = await fetch('/api/security-events', { credentials: 'same-origin' });
-                if (res.status === 401) { logout(); return; }
-                const d = await res.json();
-                const list = d.events || [];
-                const body = document.getElementById('secEventsBody');
-                if (list.length === 0) {
-                    body.innerHTML = '<div class="empty">暂无安全事件</div>';
-                    return;
-                }
-                body.innerHTML = list.map(e => `
-                    <div class="event-row">
-                        <span class="event-time">${e.time}</span>
-                        <span class="log-level ${e.level}">[${e.level.toUpperCase()}]</span>
-                        <span class="event-msg">${escapeHtml(e.message)}</span>
-                    </div>`).join('');
-            } catch (err) { console.error('加载安全事件失败:', err); }
-        }
-
-        // 修改管理密码
-        async function changePassword() {
-            const hint = document.getElementById('pwSaveHint');
-            const cur = document.getElementById('pwCurrent').value;
-            const nw = document.getElementById('pwNew').value;
-            const cf = document.getElementById('pwConfirm').value;
-            if (!cur || !nw) { hint.textContent = '请填写完整'; hint.className = 'save-hint err'; return; }
-            if (nw.length < 6) { hint.textContent = '新密码至少 6 位'; hint.className = 'save-hint err'; return; }
-            if (nw !== cf) { hint.textContent = '两次输入的新密码不一致'; hint.className = 'save-hint err'; return; }
-            hint.textContent = '提交中...'; hint.className = 'save-hint';
-            try {
-                const res = await fetch('/api/change-password', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken },
-                    credentials: 'same-origin',
-                    body: JSON.stringify({ current_password: cur, new_password: nw })
-                });
-                const data = await res.json();
-                if (data.success) {
-                    alert('密码已修改，请使用新密码重新登录');
-                    logout();
-                } else {
-                    hint.textContent = data.error || '修改失败'; hint.className = 'save-hint err';
-                }
-            } catch (err) {
-                hint.textContent = '网络错误'; hint.className = 'save-hint err';
-            }
-        }
+                <!-- 安全中心 -->
+                <div v-else>
+                    <div class="page-head"><h2>安全中心</h2><p>可调整安全防护策略与实时安全监控</p></div>
+                    <div class="card">
+                        <div class="card-title">安全策略设置</div>
+                        <div class="form-grid">
+                            <div class="form-group"><label>会话超时（分钟）</label><input type="number" v-model.number="sec.session_timeout_min" min="1" max="1440"></div>
+                            <div class="form-group"><label>登录失败锁定阈值（次）</label><input type="number" v-model.number="sec.rate_limit_max" min="1" max="100"></div>
+                            <div class="form-group"><label>锁定时长（分钟）</label><input type="number" v-model.number="sec.rate_limit_lock_min" min="1" max="1440"></div>
+                            <div class="form-group"><label>自定义 CSP 响应头（可选）</label><input type="text" v-model="sec.custom_csp" placeholder="留空使用默认策略"></div>
+                        </div>
+                        <div class="toggle-grid">
+                            <label class="switch-row"><span>CSRF 防护</span><input type="checkbox" v-model="sec.csrf_protection" class="switch"></label>
+                            <label class="switch-row"><span>安全响应头</span><input type="checkbox" v-model="sec.security_headers" class="switch"></label>
+                            <label class="switch-row"><span>HttpOnly Cookie</span><input type="checkbox" v-model="sec.httponly_cookie" class="switch"></label>
+                            <label class="switch-row"><span>SameSite Cookie</span><input type="checkbox" v-model="sec.samesite_cookie" class="switch"></label>
+                        </div>
+                        <div class="form-actions">
+                            <button class="btn-sm" @click="saveSecurity">保存安全设置</button>
+                            <span class="save-hint" :class="hints.secClass">{{ hints.sec }}</span>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">底层加密保障（始终开启）</div>
+                        <div class="sec-row"><span class="sec-label">密码哈希存储（SHA-256 多次迭代）</span><span class="sec-val">常开</span></div>
+                        <div class="sec-row"><span class="sec-label">密码加盐</span><span class="sec-val">常开</span></div>
+                        <div class="sec-row"><span class="sec-label">常量时间比较（防时序攻击）</span><span class="sec-val">常开</span></div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">实时安全状态</div>
+                        <div class="kv"><span class="kv-k">当前活动会话</span><span class="kv-v">{{ secStatus.active_sessions }}</span></div>
+                        <div class="kv"><span class="kv-k">被锁定 IP 数</span><span class="kv-v">{{ secStatus.locked_ips.length }}</span></div>
+                        <div style="margin-top:10px;">
+                            <div v-if="!secStatus.locked_ips.length" style="color:var(--muted);font-size:13px;">无被锁定的 IP</div>
+                            <div v-for="x in secStatus.locked_ips" :key="x.ip" class="lock-row">
+                                <span>{{ x.ip }}（约 {{ x.unlock_at }} 解锁）</span>
+                                <button class="btn-sm btn-ghost" @click="unlockIP(x.ip)">解锁</button>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">安全事件</div>
+                        <div v-if="!events.length" class="empty">暂无安全事件</div>
+                        <div v-for="e in events" :key="e.time + e.message" class="event-row">
+                            <span class="event-time">{{ e.time }}</span>
+                            <span class="log-level" :class="e.level">[{{ e.level.toUpperCase() }}]</span>
+                            <span class="event-msg">{{ e.message }}</span>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <div class="card-title">修改管理密码</div>
+                        <div class="form-grid">
+                            <div class="form-group"><label>当前密码</label><input type="password" v-model="pw.current" autocomplete="current-password"></div>
+                            <div class="form-group"><label>新密码（至少 6 位）</label><input type="password" v-model="pw.next" autocomplete="new-password"></div>
+                            <div class="form-group" style="grid-column:1/-1"><label>确认新密码</label><input type="password" v-model="pw.confirm" autocomplete="new-password"></div>
+                        </div>
+                        <div class="form-actions">
+                            <button class="btn-sm" @click="changePassword">修改密码</button>
+                            <span class="save-hint" :class="hints.pwClass">{{ hints.pw }}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <div class="footer">NexusLink · 安全内网穿透平台</div>
+        </main>
+    </div>
+    `
+}).mount('#app');
 </script>
 </body>
 </html>

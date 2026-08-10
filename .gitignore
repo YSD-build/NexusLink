@@ -7,6 +7,12 @@ test/client_custom.yaml
 test/echo_tcp_custom.py
 test/echo_udp_custom.py
 
+# 开发期间辅助脚本（压测 / 渗透 / 内存监控，本地使用不入库）
+test/bench_conn.py
+test/bench_web.py
+test/pen_test.py
+test/mem_monitor.py
+
 # 截图
 screenshots/
 
