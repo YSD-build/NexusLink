@@ -185,6 +185,24 @@ func (s *Server) KickClient(id string) error {
 	return nil
 }
 
+// CloseProxy 下线指定隧道：关闭服务端监听资源并通知客户端停止该代理
+func (s *Server) CloseProxy(name string) error {
+	s.mu.Lock()
+	proxy, ok := s.proxies[name]
+	if !ok {
+		s.mu.Unlock()
+		return fmt.Errorf("隧道 [%s] 不存在", name)
+	}
+	// 通知客户端关闭该代理（尽力而为，失败不影响服务端清理）
+	if proxy.ClientConn != nil {
+		_ = protocol.WriteMessage(proxy.ClientConn, protocol.TypeCloseProxy, protocol.CloseProxy{Name: name})
+	}
+	s.cleanupProxy(name, proxy)
+	s.mu.Unlock()
+	s.addLogWarn(fmt.Sprintf("Web 下线隧道 [%s]", name))
+	return nil
+}
+
 // clientConnectedAt 从 clientID（格式 addr-unixnano）解析连接时间
 func clientConnectedAt(id string) string {
 	idx := strings.LastIndex(id, "-")
@@ -380,33 +398,35 @@ func (s *Server) handleControlMessages(conn net.Conn, clientID string) {
 
 	// 清理资源：仅清理本客户端拥有的代理，互不干扰（多客户端隔离）
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	for name, proxy := range s.proxies {
-		if proxy.Owner != clientID {
-			continue
+		if proxy.Owner == clientID {
+			s.cleanupProxy(name, proxy)
 		}
-		if proxy.Listener != nil {
-			proxy.Listener.Close()
-		}
-		if proxy.DataListener != nil {
-			proxy.DataListener.Close() // 令 acceptDataConnections 退出
-		}
-		if proxy.UDPConn != nil {
-			proxy.UDPConn.Close()
-		}
-		if proxy.UDPDataConn != nil {
-			proxy.UDPDataConn.Close() // 令 handleUDP* goroutine 退出
-		}
-		if proxy.sessionQuit != nil {
-			close(proxy.sessionQuit) // 停止 cleanupUDPSessions
-		}
-		delete(s.proxies, name)
-		s.addLog(fmt.Sprintf("代理 [%s] 已关闭", name))
 	}
-
 	delete(s.clients, clientID)
+	s.mu.Unlock()
 	s.addLog(fmt.Sprintf("客户端 [%s] 断开连接", clientID))
+}
+
+// cleanupProxy 关闭并移除指定代理（调用方需持有 s.mu 写锁）
+func (s *Server) cleanupProxy(name string, proxy *Proxy) {
+	if proxy.Listener != nil {
+		proxy.Listener.Close()
+	}
+	if proxy.DataListener != nil {
+		proxy.DataListener.Close() // 令 acceptDataConnections 退出
+	}
+	if proxy.UDPConn != nil {
+		proxy.UDPConn.Close()
+	}
+	if proxy.UDPDataConn != nil {
+		proxy.UDPDataConn.Close() // 令 handleUDP* goroutine 退出
+	}
+	if proxy.sessionQuit != nil {
+		close(proxy.sessionQuit) // 停止 cleanupUDPSessions
+	}
+	delete(s.proxies, name)
+	s.addLog(fmt.Sprintf("代理 [%s] 已关闭", name))
 }
 
 // handleNewProxy 处理新建代理请求

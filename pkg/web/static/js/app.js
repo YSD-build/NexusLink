@@ -127,6 +127,23 @@
                     }
                 } catch (e) { alert('网络错误'); }
             },
+            async closeProxy(p) {
+                if (!confirm('确定下线隧道 [' + p.name + '] 吗？\n该隧道将停止监听并关闭连接。')) return;
+                try {
+                    const res = await fetch('/api/proxies/close', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': this.csrfToken },
+                        credentials: 'same-origin',
+                        body: JSON.stringify({ name: p.name })
+                    });
+                    const d = await res.json();
+                    if (d.success) {
+                        this.loadData();
+                    } else {
+                        alert(d.error || '操作失败');
+                    }
+                } catch (e) { alert('网络错误'); }
+            },
             async loadSecurity() {
                 try {
                     const res = await fetch('/api/security', { credentials: 'same-origin' });
@@ -245,15 +262,16 @@
                         <nx-panel title="隧道列表">
                             <div class="table-wrap">
                                 <table class="data-table">
-                                    <thead><tr><th>隧道名称</th><th>类型</th><th>远程端口</th><th>流量</th><th>状态</th></tr></thead>
+                                    <thead><tr><th>隧道名称</th><th>类型</th><th>远程端口</th><th>流量</th><th>状态</th><th>操作</th></tr></thead>
                                     <tbody>
-                                        <tr v-if="!proxies.length"><td colspan="5"><nx-empty text="暂无隧道"></nx-empty></td></tr>
+                                        <tr v-if="!proxies.length"><td colspan="6"><nx-empty text="暂无隧道"></nx-empty></td></tr>
                                         <tr v-for="p in proxies" :key="p.name">
                                             <td class="cell-mono">{{ p.name }}</td>
                                             <td>{{ typeLabel(p.type) }}</td>
                                             <td class="cell-mono">{{ p.remotePort }}</td>
                                             <td class="cell-mono">{{ fmtBytes(p.bytesIn) }} / {{ fmtBytes(p.bytesOut) }}</td>
                                             <td><nx-badge :on="p.active"></nx-badge></td>
+                                            <td><button class="btn btn-danger btn-xs" @click="closeProxy(p)">下线</button></td>
                                         </tr>
                                     </tbody>
                                 </table>
@@ -267,9 +285,9 @@
                         <nx-panel title="全部隧道">
                             <div class="table-wrap">
                                 <table class="data-table">
-                                    <thead><tr><th>隧道名称</th><th>类型</th><th>远程端口</th><th>本地地址</th><th>本地端口</th><th>流量</th><th>状态</th></tr></thead>
+                                    <thead><tr><th>隧道名称</th><th>类型</th><th>远程端口</th><th>本地地址</th><th>本地端口</th><th>流量</th><th>状态</th><th>操作</th></tr></thead>
                                     <tbody>
-                                        <tr v-if="!proxies.length"><td colspan="7"><nx-empty text="暂无隧道"></nx-empty></td></tr>
+                                        <tr v-if="!proxies.length"><td colspan="8"><nx-empty text="暂无隧道"></nx-empty></td></tr>
                                         <tr v-for="p in proxies" :key="p.name">
                                             <td class="cell-mono">{{ p.name }}</td>
                                             <td>{{ typeLabel(p.type) }}</td>
@@ -278,6 +296,7 @@
                                             <td class="cell-mono">{{ p.localPort || '--' }}</td>
                                             <td class="cell-mono">{{ fmtBytes(p.bytesIn) }} / {{ fmtBytes(p.bytesOut) }}</td>
                                             <td><nx-badge :on="p.active"></nx-badge></td>
+                                            <td><button class="btn btn-danger btn-xs" @click="closeProxy(p)">下线</button></td>
                                         </tr>
                                     </tbody>
                                 </table>

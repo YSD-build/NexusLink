@@ -98,6 +98,11 @@ type NewConn struct {
 	DataPort  int    `json:"data_port"` // 独立 TCP 数据通道端口（server 分配，client 据此 dial）
 }
 
+// CloseProxy 关闭代理通知（server 通知 client 关闭指定隧道）
+type CloseProxy struct {
+	Name string `json:"name"`
+}
+
 // Message 消息封装
 type Message struct {
 	Type MessageType

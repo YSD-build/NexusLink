@@ -65,6 +65,7 @@ type ProxyManager interface {
 	GetStatus() StatusInfo
 	GetClients() []ClientInfo
 	KickClient(id string) error
+	CloseProxy(name string) error
 }
 
 // ProxyInfo 代理信息
@@ -163,6 +164,7 @@ func (ws *WebServer) Start() error {
 	mux.HandleFunc("/api/change-password", ws.authMiddleware(ws.handleChangePassword))
 	mux.HandleFunc("/api/clients", ws.authMiddleware(ws.handleClients))
 	mux.HandleFunc("/api/clients/kick", ws.authMiddleware(ws.handleKickClient))
+	mux.HandleFunc("/api/proxies/close", ws.authMiddleware(ws.handleCloseProxy))
 
 	addr := ws.config.Addr
 	if addr == "" {
@@ -521,6 +523,30 @@ func (ws *WebServer) handleKickClient(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	ws.AddLog("info", fmt.Sprintf("Web 强制下线客户端 [%s]", req.ID))
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+// 下线隧道
+func (ws *WebServer) handleCloseProxy(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "缺少隧道名称"})
+		return
+	}
+	if err := ws.proxyManager.CloseProxy(req.Name); err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 

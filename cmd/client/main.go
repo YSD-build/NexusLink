@@ -385,10 +385,44 @@ func (c *Client) handleMessages() {
 		switch msg.Type {
 		case protocol.TypeNewConn:
 			c.handleNewConn(msg)
+		case protocol.TypeCloseProxy:
+			c.handleCloseProxy(msg)
 		case protocol.TypeHeartbeatResp:
 			// ignore
 		}
 	}
+}
+
+// handleCloseProxy 服务端要求关闭指定隧道：释放本地资源并从代理表移除
+func (c *Client) handleCloseProxy(msg *protocol.Message) {
+	cp, err := protocol.ParseMessage[protocol.CloseProxy](msg)
+	if err != nil {
+		log.Printf("Parse close proxy failed: %v", err)
+		return
+	}
+
+	c.mu.Lock()
+	p, ok := c.proxies[cp.Name]
+	if ok {
+		if p.udpDataConn != nil {
+			p.udpDataConn.Close() // 令 UDP 数据通道 goroutine 退出
+		}
+		if p.udpQuit != nil {
+			select {
+			case <-p.udpQuit:
+			default:
+				close(p.udpQuit) // 停止 UDP session 清理 goroutine
+			}
+		}
+		delete(c.proxies, cp.Name)
+	}
+	c.mu.Unlock()
+
+	if !ok {
+		log.Printf("Proxy [%s] not found, skip close", cp.Name)
+		return
+	}
+	log.Printf("Proxy [%s] closed by server", cp.Name)
 }
 
 // handleNewConn 处理新连接（仅 TCP；UDP 由 client 主动建立数据通道，不在此处理）

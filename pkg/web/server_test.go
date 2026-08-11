@@ -32,6 +32,10 @@ func (mockPM) KickClient(id string) error {
 	return nil
 }
 
+func (mockPM) CloseProxy(name string) error {
+	return nil
+}
+
 // 带踢下线记录的 mock：验证请求体中的 ID 被正确透传
 type kickRecorderPM struct {
 	mockPM
@@ -40,6 +44,17 @@ type kickRecorderPM struct {
 
 func (k *kickRecorderPM) KickClient(id string) error {
 	k.kicked = id
+	return nil
+}
+
+// 带下线隧道记录的 mock：验证请求体中的 name 被正确透传
+type closeProxyRecorderPM struct {
+	mockPM
+	closed string
+}
+
+func (k *closeProxyRecorderPM) CloseProxy(name string) error {
+	k.closed = name
 	return nil
 }
 
@@ -54,6 +69,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 	mux.HandleFunc("/api/change-password", ws.authMiddleware(ws.handleChangePassword))
 	mux.HandleFunc("/api/clients", ws.authMiddleware(ws.handleClients))
 	mux.HandleFunc("/api/clients/kick", ws.authMiddleware(ws.handleKickClient))
+	mux.HandleFunc("/api/proxies/close", ws.authMiddleware(ws.handleCloseProxy))
 	return httptest.NewServer(mux)
 }
 
@@ -344,5 +360,80 @@ func TestKickClientMissingID(t *testing.T) {
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("缺少 ID 应 400，得到 %d", resp.StatusCode)
+	}
+}
+
+// 下线隧道：POST /api/proxies/close 带 CSRF，name 正确透传
+func TestCloseProxy(t *testing.T) {
+	rec := &closeProxyRecorderPM{}
+	ws := NewWebServer(&WebConfig{AdminPassword: "admin123"}, rec)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/login", ws.handleLogin)
+	mux.HandleFunc("/api/proxies/close", ws.authMiddleware(ws.handleCloseProxy))
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	c := newClient(t)
+	code, csrf := doLogin(t, c, srv.URL, "admin123")
+	if code != http.StatusOK {
+		t.Fatalf("登录失败: %d", code)
+	}
+
+	// 无 CSRF 拒绝
+	resp, err := c.Post(srv.URL+"/api/proxies/close", "application/json",
+		strings.NewReader(`{"name":"mc"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden && resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("无 CSRF 应拒绝，得到 %d", resp.StatusCode)
+	}
+
+	// 带 CSRF 成功
+	req, _ := http.NewRequest("POST", srv.URL+"/api/proxies/close",
+		strings.NewReader(`{"name":"mc"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", csrf)
+	resp, err = c.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("带 CSRF 下线隧道应 200，得到 %d", resp.StatusCode)
+	}
+	var d struct {
+		Success bool `json:"success"`
+	}
+	json.NewDecoder(resp.Body).Decode(&d)
+	if !d.Success {
+		t.Fatal("下线隧道应返回 success=true")
+	}
+	if rec.closed != "mc" {
+		t.Fatalf("透传 name 应为 mc，得到 %q", rec.closed)
+	}
+}
+
+// 下线隧道：缺少 name 返回 400
+func TestCloseProxyMissingName(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+	c := newClient(t)
+	code, csrf := doLogin(t, c, ts.URL, "admin123")
+	if code != http.StatusOK {
+		t.Fatalf("登录失败: %d", code)
+	}
+	req, _ := http.NewRequest("POST", ts.URL+"/api/proxies/close",
+		strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", csrf)
+	resp, err := c.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("缺少 name 应 400，得到 %d", resp.StatusCode)
 	}
 }
