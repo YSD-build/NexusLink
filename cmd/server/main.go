@@ -11,6 +11,8 @@ import (
 	"net"
 	"path/filepath"
 	"regexp"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -145,6 +147,55 @@ func (s *Server) addLog(msg string) {
 		s.webServer.AddLog("info", msg)
 	}
 	log.Println(msg)
+}
+
+// GetClients 获取在线客户端列表（实现 ProxyManager 接口）
+func (s *Server) GetClients() []web.ClientInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	clients := make([]web.ClientInfo, 0, len(s.clients))
+	for id, conn := range s.clients {
+		proxyCount := 0
+		for _, p := range s.proxies {
+			if p.Owner == id {
+				proxyCount++
+			}
+		}
+		clients = append(clients, web.ClientInfo{
+			ID:          id,
+			Addr:        conn.RemoteAddr().String(),
+			ConnectedAt: clientConnectedAt(id),
+			ProxyCount:  proxyCount,
+		})
+	}
+	return clients
+}
+
+// KickClient 强制下线客户端：关闭控制连接，触发 handleControlMessages 退出并清理其代理
+func (s *Server) KickClient(id string) error {
+	s.mu.RLock()
+	conn, ok := s.clients[id]
+	s.mu.RUnlock()
+	if !ok {
+		return fmt.Errorf("客户端不存在或已离线")
+	}
+	conn.Close()
+	s.addLogWarn(fmt.Sprintf("强制下线客户端 [%s]", id))
+	return nil
+}
+
+// clientConnectedAt 从 clientID（格式 addr-unixnano）解析连接时间
+func clientConnectedAt(id string) string {
+	idx := strings.LastIndex(id, "-")
+	if idx < 0 || idx == len(id)-1 {
+		return ""
+	}
+	n, err := strconv.ParseInt(id[idx+1:], 10, 64)
+	if err != nil || n <= 0 {
+		return ""
+	}
+	return time.Unix(0, n).Format("2006-01-02 15:04:05")
 }
 
 // addLogWarn 添加警告日志

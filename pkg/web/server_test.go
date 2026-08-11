@@ -21,6 +21,28 @@ func (mockPM) GetStatus() StatusInfo {
 	return StatusInfo{Running: true, BindAddr: "0.0.0.0", BindPort: 7000, Version: "v0.3.7"}
 }
 
+func (mockPM) GetClients() []ClientInfo {
+	return []ClientInfo{
+		{ID: "client-a", Addr: "10.0.0.1:5000", ConnectedAt: "2026-08-12 00:00:00", ProxyCount: 2},
+		{ID: "client-b", Addr: "10.0.0.2:6000", ConnectedAt: "2026-08-12 00:05:00", ProxyCount: 0},
+	}
+}
+
+func (mockPM) KickClient(id string) error {
+	return nil
+}
+
+// 带踢下线记录的 mock：验证请求体中的 ID 被正确透传
+type kickRecorderPM struct {
+	mockPM
+	kicked string
+}
+
+func (k *kickRecorderPM) KickClient(id string) error {
+	k.kicked = id
+	return nil
+}
+
 // newTestServer 构造与 Start() 相同的路由注册（httptest，无真实监听冲突）
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
@@ -30,6 +52,8 @@ func newTestServer(t *testing.T) *httptest.Server {
 	mux.HandleFunc("/api/status", ws.authMiddleware(ws.handleStatus))
 	mux.HandleFunc("/api/security", ws.authMiddleware(ws.handleSecurity))
 	mux.HandleFunc("/api/change-password", ws.authMiddleware(ws.handleChangePassword))
+	mux.HandleFunc("/api/clients", ws.authMiddleware(ws.handleClients))
+	mux.HandleFunc("/api/clients/kick", ws.authMiddleware(ws.handleKickClient))
 	return httptest.NewServer(mux)
 }
 
@@ -209,5 +233,116 @@ func TestLoginLockout(t *testing.T) {
 	code, _ := doLogin(t, c, ts.URL, "wrong")
 	if code != http.StatusTooManyRequests {
 		t.Fatalf("第 6 次失败应 429，得到 %d", code)
+	}
+}
+
+// 在线客户端列表：登录后 GET /api/clients 返回客户端信息
+func TestClientsList(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+	c := newClient(t)
+	code, csrf := doLogin(t, c, ts.URL, "admin123")
+	if code != http.StatusOK {
+		t.Fatalf("登录失败: %d", code)
+	}
+	_ = csrf
+
+	resp, err := c.Get(ts.URL + "/api/clients")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /api/clients 应 200，得到 %d", resp.StatusCode)
+	}
+	var d struct {
+		Clients []ClientInfo `json:"clients"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&d); err != nil {
+		t.Fatal(err)
+	}
+	if len(d.Clients) != 2 {
+		t.Fatalf("应返回 2 个客户端，得到 %d", len(d.Clients))
+	}
+	if d.Clients[0].ID != "client-a" || d.Clients[0].ProxyCount != 2 {
+		t.Fatalf("客户端信息不符: %+v", d.Clients[0])
+	}
+}
+
+// 强制下线：POST /api/clients/kick 带 CSRF，ID 正确透传
+func TestKickClient(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+
+	rec := &kickRecorderPM{}
+	ws := NewWebServer(&WebConfig{AdminPassword: "admin123"}, rec)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/login", ws.handleLogin)
+	mux.HandleFunc("/api/clients/kick", ws.authMiddleware(ws.handleKickClient))
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	c := newClient(t)
+	code, csrf := doLogin(t, c, srv.URL, "admin123")
+	if code != http.StatusOK {
+		t.Fatalf("登录失败: %d", code)
+	}
+
+	// 无 CSRF 拒绝
+	resp, err := c.Post(srv.URL+"/api/clients/kick", "application/json",
+		strings.NewReader(`{"id":"client-a"}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden && resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("无 CSRF 应拒绝，得到 %d", resp.StatusCode)
+	}
+
+	// 带 CSRF 成功
+	req, _ := http.NewRequest("POST", srv.URL+"/api/clients/kick",
+		strings.NewReader(`{"id":"client-b"}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", csrf)
+	resp, err = c.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("带 CSRF 踢下线应 200，得到 %d", resp.StatusCode)
+	}
+	var d struct {
+		Success bool `json:"success"`
+	}
+	json.NewDecoder(resp.Body).Decode(&d)
+	if !d.Success {
+		t.Fatal("踢下线应返回 success=true")
+	}
+	if rec.kicked != "client-b" {
+		t.Fatalf("透传 ID 应为 client-b，得到 %q", rec.kicked)
+	}
+}
+
+// 强制下线：缺少 ID 返回 400
+func TestKickClientMissingID(t *testing.T) {
+	ts := newTestServer(t)
+	defer ts.Close()
+	c := newClient(t)
+	code, csrf := doLogin(t, c, ts.URL, "admin123")
+	if code != http.StatusOK {
+		t.Fatalf("登录失败: %d", code)
+	}
+	req, _ := http.NewRequest("POST", ts.URL+"/api/clients/kick",
+		strings.NewReader(`{}`))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-CSRF-Token", csrf)
+	resp, err := c.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("缺少 ID 应 400，得到 %d", resp.StatusCode)
 	}
 }

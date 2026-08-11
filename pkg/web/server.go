@@ -63,6 +63,8 @@ type WebConfig struct {
 type ProxyManager interface {
 	GetProxies() []ProxyInfo
 	GetStatus() StatusInfo
+	GetClients() []ClientInfo
+	KickClient(id string) error
 }
 
 // ProxyInfo 代理信息
@@ -75,6 +77,14 @@ type ProxyInfo struct {
 	Active     bool   `json:"active"`
 	BytesIn    int64  `json:"bytesIn"`  // 入站字节（TCP）
 	BytesOut   int64  `json:"bytesOut"` // 出站字节（TCP）
+}
+
+// ClientInfo 在线客户端信息
+type ClientInfo struct {
+	ID          string `json:"id"`       // clientID（服务端内部唯一标识）
+	Addr        string `json:"addr"`     // 客户端来源地址
+	ConnectedAt string `json:"connectedAt"` // 连接时间（格式化）
+	ProxyCount  int    `json:"proxyCount"`  // 该客户端拥有的隧道数
 }
 
 // StatusInfo 状态信息
@@ -151,6 +161,8 @@ func (ws *WebServer) Start() error {
 	mux.HandleFunc("/api/security-unlock", ws.authMiddleware(ws.handleSecurityUnlock))
 	mux.HandleFunc("/api/security-events", ws.authMiddleware(ws.handleSecurityEvents))
 	mux.HandleFunc("/api/change-password", ws.authMiddleware(ws.handleChangePassword))
+	mux.HandleFunc("/api/clients", ws.authMiddleware(ws.handleClients))
+	mux.HandleFunc("/api/clients/kick", ws.authMiddleware(ws.handleKickClient))
 
 	addr := ws.config.Addr
 	if addr == "" {
@@ -472,6 +484,44 @@ func (ws *WebServer) handleConfig(w http.ResponseWriter, r *http.Request) {
 			"error":   "暂不支持在线修改配置，请修改配置文件后重启服务",
 		})
 	}
+}
+
+// 在线客户端列表
+func (ws *WebServer) handleClients(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"clients": ws.proxyManager.GetClients(),
+	})
+}
+
+// 强制下线客户端
+func (ws *WebServer) handleKickClient(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+	var req struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.ID == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "缺少客户端 ID"})
+		return
+	}
+	if err := ws.proxyManager.KickClient(req.ID); err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	ws.AddLog("info", fmt.Sprintf("Web 强制下线客户端 [%s]", req.ID))
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }
 
 // 日志处理

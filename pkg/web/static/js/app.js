@@ -31,6 +31,7 @@
                     samesite_cookie: true
                 },
                 secStatus: { active_sessions: 0, locked_ips: [] },
+                clients: [],
                 events: [],
                 pw: { current: '', next: '', confirm: '' },
                 hints: { sec: '', secClass: '', pw: '', pwClass: '' }
@@ -41,14 +42,14 @@
         },
         mounted() {
             this.checkLogin();
-            setInterval(this.loadData, 30000);
+            setInterval(() => { this.loadData(); this.loadClients(); }, 30000);
         },
         methods: {
             /* ---------- 认证 ---------- */
             async checkLogin() {
                 try {
                     const res = await fetch('/api/status', { credentials: 'same-origin' });
-                    if (res.ok) { this.loggedIn = true; this.loadData(); }
+                    if (res.ok) { this.loggedIn = true; this.loadData(); this.loadClients(); }
                 } catch (e) {}
             },
             async login(pwd) {
@@ -65,6 +66,7 @@
                         this.loggedIn = true;
                         this.loginError = '';
                         this.loadData();
+                        this.loadClients();
                     } else {
                         this.loginError = d.error || '登录失败';
                     }
@@ -84,6 +86,7 @@
             /* ---------- 导航 ---------- */
             switchPage(p) {
                 this.page = p;
+                if (p === 'dashboard') { this.loadClients(); }
                 if (p === 'security') {
                     this.loadSecurity();
                     this.loadSecurityStatus();
@@ -98,6 +101,31 @@
                     if (res.status === 401) { this.logout(); return; }
                     this.status = await res.json();
                 } catch (e) {}
+            },
+            async loadClients() {
+                try {
+                    const res = await fetch('/api/clients', { credentials: 'same-origin' });
+                    if (res.status === 401) { this.logout(); return; }
+                    this.clients = (await res.json()).clients || [];
+                } catch (e) {}
+            },
+            async kickClient(c) {
+                if (!confirm('确定强制下线客户端 ' + c.addr + ' 吗？\n该客户端的全部隧道将被关闭。')) return;
+                try {
+                    const res = await fetch('/api/clients/kick', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': this.csrfToken },
+                        credentials: 'same-origin',
+                        body: JSON.stringify({ id: c.id })
+                    });
+                    const d = await res.json();
+                    if (d.success) {
+                        this.loadClients();
+                        this.loadData();
+                    } else {
+                        alert(d.error || '操作失败');
+                    }
+                } catch (e) { alert('网络错误'); }
             },
             async loadSecurity() {
                 try {
@@ -196,6 +224,22 @@
                         <nx-panel title="安全防护" sub="全部防护项已开启">
                             <div class="security-features">
                                 <div class="security-feature" v-for="f in ['密码哈希加密','防暴力破解','登录失败锁定','CSRF 防护','会话超时','安全响应头','HttpOnly Cookie']" :key="f">{{ f }}</div>
+                            </div>
+                        </nx-panel>
+                        <nx-panel title="在线客户端" sub="可强制下线异常客户端">
+                            <div class="table-wrap">
+                                <table class="data-table">
+                                    <thead><tr><th>来源地址</th><th>连接时间</th><th>隧道数</th><th>操作</th></tr></thead>
+                                    <tbody>
+                                        <tr v-if="!clients.length"><td colspan="4"><nx-empty text="暂无在线客户端"></nx-empty></td></tr>
+                                        <tr v-for="c in clients" :key="c.id">
+                                            <td class="cell-mono">{{ c.addr }}</td>
+                                            <td class="cell-mono">{{ c.connectedAt }}</td>
+                                            <td class="cell-mono">{{ c.proxyCount }}</td>
+                                            <td><button class="btn btn-danger btn-xs" @click="kickClient(c)">强制下线</button></td>
+                                        </tr>
+                                    </tbody>
+                                </table>
                             </div>
                         </nx-panel>
                         <nx-panel title="隧道列表">

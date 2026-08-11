@@ -158,6 +158,9 @@ body {
 
 .btn-block { width: 100%; }
 
+/* 表格内小按钮 */
+.btn-xs { padding: 4px 12px; font-size: 12px; border-radius: 6px; }
+
 /* ============ 错误提示 ============ */
 .error-msg {
     margin-top: 12px;
