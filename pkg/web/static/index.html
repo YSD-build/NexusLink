@@ -146,7 +146,7 @@ createApp({
             loginPassword: '',
             loginError: '',
             csrfToken: '',
-            status: { running: true, clientCount: 0, proxyCount: 0, bindPort: '--', version: 'v0.3.6' },
+            status: { running: true, clientCount: 0, proxyCount: 0, bindPort: '--', version: 'v0.3.7' },
             sec: { session_timeout_min: 30, rate_limit_max: 5, rate_limit_lock_min: 15, custom_csp: '',
                    csrf_protection: true, security_headers: true, httponly_cookie: true, samesite_cookie: true },
             secStatus: { active_sessions: 0, locked_ips: [] },
@@ -294,7 +294,7 @@ createApp({
                 <div class="tab" :class="{active: page==='security'}" @click="switchPage('security')">安全中心</div>
             </nav>
             <div class="side-footer">
-                <span class="version-pill">{{ status.version || 'v0.3.6' }}</span>
+                <span class="version-pill">{{ status.version || 'v0.3.7' }}</span>
                 <button class="logout-btn" @click="logout">退出</button>
             </div>
         </aside>

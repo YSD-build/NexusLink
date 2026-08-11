@@ -20,17 +20,19 @@ if old == new:
     raise SystemExit(0)
 print(f"版本升级: {old} -> {new}")
 
-def rep(path, pairs):
+def rep(path, pairs, count=1):
     s = open(path, encoding="utf-8").read()
     for a, b in pairs:
         assert a in s, f"{path} 未匹配: {a}"
-        s = s.replace(a, b, 1)
+        # count=0 表示替换全部；>0 表示只替换前 count 次
+        s = s.replace(a, b) if count == 0 else s.replace(a, b, count)
     open(path, "w", encoding="utf-8").write(s)
     print(f"  [OK] {path}")
 
 rep("cmd/server/main.go", [(f'var Version = "{old}"', f'var Version = "{new}"')])
 rep("cmd/client/main.go", [(f'var Version = "{old}"', f'var Version = "{new}"')])
-rep("pkg/web/static/index.html", [(f'>{old}</span>', f'>{new}</span>'), (f"'{old}'", f"'{new}'")])
+# Vue SPA：index.html 中版本号以 'vX.Y.Z' 单引号形式出现（JS data + template fallback 两处，全部替换）
+rep("pkg/web/static/index.html", [(f"'{old}'", f"'{new}'")], 0)
 rep("scripts/install-nexuslink.sh", [(f'VERSION="{old}"', f'VERSION="{new}"')])
 
 # README：当前版本段插入新行 + 资产名/链接/镜像标签替换（不动历史 changelog）
@@ -40,6 +42,7 @@ head = s.split(marker, 1)[1].split("\n", 1)[0]
 if f"**{new}**" not in head:
     s = s.replace(marker, marker + f"**{new}** — {desc}\n", 1)
 s = s.replace(f"-{old}-", f"-{new}-")          # 资产名 nexuslink-server-v0.3.5-xxx
+s = s.replace(f"**[{old} Release]", f"**[{new} Release]")  # 发布入口链接文本
 s = s.replace(f"/tag/{old}", f"/tag/{new}")
 s = s.replace(f"/download/{old}/", f"/download/{new}/")
 s = s.replace(f"web-panel-{old}.zip", f"web-panel-{new}.zip")

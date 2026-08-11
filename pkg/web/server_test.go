@@ -18,7 +18,7 @@ func (mockPM) GetProxies() []ProxyInfo {
 }
 
 func (mockPM) GetStatus() StatusInfo {
-	return StatusInfo{Running: true, BindAddr: "0.0.0.0", BindPort: 7000, Version: "v0.3.6"}
+	return StatusInfo{Running: true, BindAddr: "0.0.0.0", BindPort: 7000, Version: "v0.3.7"}
 }
 
 // newTestServer 构造与 Start() 相同的路由注册（httptest，无真实监听冲突）
