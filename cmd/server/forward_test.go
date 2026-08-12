@@ -18,21 +18,23 @@ func TestForwardWithAuthDropsTamperedPacket(t *testing.T) {
 	defer cliConn.Close()
 
 	s := &Server{auth: auth.NewAuth("test_token_123")}
+	proxy := &Proxy{}
 
 	done := make(chan struct{})
 	go func() {
-		s.forwardWithAuth(srvUser, srvCli, "t1")
+		s.forwardWithAuth(srvUser, srvCli, "t1", proxy)
 		close(done)
 	}()
 
-	// 作为“client”发送一个被篡改的签名包（篡改签名首字节）
-	good := s.auth.Sign([]byte("secret-data"))
+	// 作为“client”发送一个被篡改的签名包（用 SignFramed 生成完整帧，篡改**签名**字段首字节）
+	good := s.auth.SignFramed([]byte("secret-data"))
 	tampered := make([]byte, len(good))
 	copy(tampered, good)
-	tampered[0] ^= 0xFF
+	tampered[auth.LengthPrefixSize] ^= 0xFF // 翻转签名首字节（length prefix 保持合法）
 	_, _ = cliConn.Write(tampered)
+	cliConn.Close() // 让 srvCli 端 ReadFramed 收到 EOF
 
-	// forwardWithAuth 应因 Verify 失败而退出（篡改被拒绝 -> 连接关闭）
+	// forwardWithAuth 应因 Verify 失败或 EOF 而退出
 	select {
 	case <-done:
 	case <-time.After(3 * time.Second):
@@ -56,11 +58,12 @@ func TestForwardWithAuthPassesValidPacket(t *testing.T) {
 	defer cliConn.Close()
 
 	s := &Server{auth: auth.NewAuth("test_token_123")}
-	go s.forwardWithAuth(srvUser, srvCli, "t2")
+	proxy := &Proxy{}
+	go s.forwardWithAuth(srvUser, srvCli, "t2", proxy)
 
-	// client 发送合法签名包
-	signed := s.auth.Sign([]byte("hello-pipe"))
-	_, _ = cliConn.Write(signed)
+// client 发送合法签名包后关闭
+		_, _ = cliConn.Write(s.auth.SignFramed([]byte("hello-pipe")))
+		cliConn.Close() // 让 srvCli 端 ReadFramed 收到 EOF，forwardWithAuth 退出
 
 	buf := make([]byte, 64)
 	userConn.SetReadDeadline(time.Now().Add(2 * time.Second))

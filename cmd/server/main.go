@@ -250,7 +250,7 @@ func main() {
 		auth:      auth.NewAuth(cfg.Token),
 		proxies:   make(map[string]*Proxy),
 		clients:   make(map[string]net.Conn),
-		connGuard: security.NewConnGuard(), // 初始化连接守卫
+		connGuard: mustConnGuard(cfg.Whitelist), // 初始化连接守卫（带白名单）
 		startTime: time.Now(),
 	}
 
@@ -883,4 +883,13 @@ func (s *Server) proxyAllowed(name string, port int) bool {
 		}
 	}
 	return true
+}
+
+// mustConnGuard 创建带白名单的连接守卫；白名单格式错误则终止启动，避免运行时才发现
+func mustConnGuard(whitelist []string) *security.ConnGuard {
+	g, err := security.NewConnGuardWithWhitelist(whitelist)
+	if err != nil {
+		log.Fatalf("Load conn_guard whitelist failed: %v", err)
+	}
+	return g
 }

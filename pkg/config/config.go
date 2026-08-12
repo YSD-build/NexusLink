@@ -24,6 +24,7 @@ type ServerConfig struct {
 	BindTLSCert   string `yaml:"bind_tls_cert"`  // 隧道 TLS 证书（可选，配置即启用；UDP 数据通道仍为明文）
 	BindTLSKey    string `yaml:"bind_tls_key"`
 	ProxyACL      ProxyACL `yaml:"proxy_acl"`   // 代理创建访问控制
+	Whitelist     []string `yaml:"whitelist"`    // 连接守卫白名单（单 IP 或 CIDR），命中后完全 bypass 检测
 }
 
 // ProxyACL 代理创建访问控制（全部为空时不限制）
