@@ -248,6 +248,7 @@ token: test123
 **Q: 提示 Permission denied?** — `chmod +x nexuslink-*`
 **Q: 提示 address already in use?** — 检查端口是否被占用，确认没有重复运行服务端。
 **Q: 客户端连接失败?** — 检查服务器防火墙开放 `bind_port` 与代理端口；确认 token 一致；检查 `server_ip` 是否正确。
+**Q: 客户端提示 `[认证失败] invalid token` 后退出?** — 这是设计行为：token 错误属于配置问题，客户端不再无限重连，而是明确提示并退出（退出码 1）。请核对 `client.yaml` 的 `token` 与服务端 `server.yaml` 的 `token` 完全一致（注意大小写与空格），然后重新启动客户端。
 **Q: UDP 不通?** — 确认服务端 `bind_port` 与 UDP 代理的 `port` 均已放通；NAT 环境下客户端需主动建链（本工具已通过独立 UDP 数据通道处理）。
 ---
 ## 📜 开源协议（License）

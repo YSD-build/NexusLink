@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -25,6 +26,10 @@ import (
 )
 
 var Version = "v0.3.7"
+
+// ErrAuthFailed 认证失败（token 错误/被服务端拒绝）。
+// 与网络类错误不同，认证失败属于配置问题，重试不会解决，应停止重连并提示用户。
+var ErrAuthFailed = errors.New("auth failed")
 
 var (
 	configFile = flag.String("c", "client.yaml", "config file path")
@@ -152,6 +157,13 @@ func main() {
 	for {
 		err := client.connect()
 		if err != nil {
+			if errors.Is(err, ErrAuthFailed) {
+				// 认证失败是配置问题，重试无意义：明确提示并退出
+				log.Printf("[认证失败] %v", err)
+				log.Printf("解决办法：打开 client.yaml，把 token 改为服务端 server.yaml 中的 token（两端必须完全一致，注意大小写与空格）。")
+				log.Printf("若仍无法解决，请检查服务端日志确认是否有 'Token无效' 记录。")
+				os.Exit(1)
+			}
 			log.Printf("Connection failed: %v, reconnecting in 5s...", err)
 			time.Sleep(5 * time.Second)
 			continue
@@ -278,7 +290,8 @@ func (c *Client) connect() error {
 
 	if !resp.Success {
 		conn.Close()
-		return fmt.Errorf("login failed: %s", resp.Error)
+		// 认证失败（token 错误）与网络错误区分：带 ErrAuthFailed 标记，主循环据此停止重试
+		return fmt.Errorf("%w: %s (服务端拒绝登录，请检查 client.yaml 的 token 是否与服务端 server.yaml 完全一致)", ErrAuthFailed, resp.Error)
 	}
 
 	conn.SetReadDeadline(time.Time{})
