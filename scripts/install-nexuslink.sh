@@ -40,7 +40,7 @@ HAS_SYSTEMD=$(systemctl --version 2>/dev/null && echo true || false)
 HAS_OPENRC=$(rc-status 2>/dev/null && echo true || true)
 
 # 版本号（从 GitHub release 获取）
-VERSION="v0.3.7"
+VERSION="v0.4.0"
 GITHUB_REPO="YSD-build/Nexuslink"
 ASSET_BASE="https://github.com/${GITHUB_REPO}/releases/download/${VERSION}/"
 

@@ -17,7 +17,7 @@
                     clientCount: 0,
                     proxyCount: 0,
                     bindPort: '--',
-                    version: 'v0.3.7',
+                    version: 'v0.4.0',
                     proxies: []
                 },
                 sec: {

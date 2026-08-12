@@ -31,8 +31,9 @@ def rep(path, pairs, count=1):
 
 rep("cmd/server/main.go", [(f'var Version = "{old}"', f'var Version = "{new}"')])
 rep("cmd/client/main.go", [(f'var Version = "{old}"', f'var Version = "{new}"')])
-# Vue SPA：index.html 中版本号以 'vX.Y.Z' 单引号形式出现（JS data + template fallback 两处，全部替换）
-rep("pkg/web/static/index.html", [(f"'{old}'", f"'{new}'")], 0)
+# Vue SPA（组件化重构后）：版本号位于 js/app.js 与 js/components.js，全部替换
+rep("pkg/web/static/js/app.js", [(f"'{old}'", f"'{new}'")], 0)
+rep("pkg/web/static/js/components.js", [(f"'{old}'", f"'{new}'")], 0)
 rep("scripts/install-nexuslink.sh", [(f'VERSION="{old}"', f'VERSION="{new}"')])
 
 # README：当前版本段插入新行 + 资产名/链接/镜像标签替换（不动历史 changelog）

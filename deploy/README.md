@@ -6,7 +6,7 @@
 
 ```bash
 # 1. 下载服务端二进制（以 linux-armv8 为例，其他架构见 README）
-V=v0.3.7
+V=v0.4.0
 wget https://github.com/YSD-build/NexusLink/releases/download/${V}/nexuslink-server-${V}-linux-armv8
 chmod +x nexuslink-server-${V}-linux-armv8
 sudo mv nexuslink-server-${V}-linux-armv8 /usr/local/bin/nexuslink-server

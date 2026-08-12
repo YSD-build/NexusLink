@@ -52,7 +52,7 @@ window.NexusLinkComponents = {
                 <div class="nav-item" :class="{active: isActive('security')}" @click="onSwitch('security')">安全中心</div>
             </nav>
             <div class="side-footer">
-                <span class="version-pill">{{ version || 'v0.3.7' }}</span>
+                <span class="version-pill">{{ version || 'v0.4.0' }}</span>
                 <button class="logout-btn" @click="$emit('logout')">退出</button>
             </div>
         </aside>`
