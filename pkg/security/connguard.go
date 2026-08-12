@@ -16,21 +16,26 @@ type ConnGuard struct {
 	connCount   map[string]int       // 每个 IP 的当前连接数
 	lastConn    map[string]time.Time // 每个 IP 上次连接时间
 	blacklist   map[string]time.Time // 黑名单 IP + 封禁时间
+	misbehavior map[string]int       // 每个 IP 连续异常次数（达到阈值才封禁）
 	whitelist   []*net.IPNet         // 白名单 CIDR 列表（命中完全 bypass）
 	maxConn     int                  // 单 IP 最大连接数
 	minInterval time.Duration        // 最小连接间隔
 	banDuration time.Duration        // 封禁时长
+	banThreshold int                 // 连续异常次数达到该值才封禁
 }
 
 // NewConnGuard 创建连接守卫（不带白名单）
+// 宽松策略：网络抖动（EOF）/ 单次协议错误不封禁，连续 banThreshold 次异常才封禁
 func NewConnGuard() *ConnGuard {
 	return &ConnGuard{
-		connCount:   make(map[string]int),
-		lastConn:    make(map[string]time.Time),
-		blacklist:   make(map[string]time.Time),
-		maxConn:     50,                 // 单 IP 最多 50 个连接（提高以适应并发场景）
-		minInterval: 200 * time.Millisecond, // 连接间隔至少 200ms（放宽频率限制）
-		banDuration: 5 * time.Minute,   // 封禁 5 分钟（从 1 小时改为 5 分钟，便于测试恢复）
+		connCount:    make(map[string]int),
+		lastConn:     make(map[string]time.Time),
+		blacklist:    make(map[string]time.Time),
+		misbehavior:  make(map[string]int),
+		maxConn:      200,                   // 单 IP 最多 200 个连接（宽松）
+		minInterval:  1 * time.Second,       // 连接间隔至少 1s（放宽，避免 NAT 抖动误判）
+		banDuration:  1 * time.Minute,       // 封禁 1 分钟（缩短，便于恢复）
+		banThreshold: 3,                     // 连续 3 次异常才封禁（容忍偶发抖动）
 	}
 }
 
@@ -95,19 +100,29 @@ func (g *ConnGuard) Check(conn net.Conn) bool {
 		log.Printf("[安全] IP %s 封禁到期，已移除", ip)
 	}
 
-	// 2. 检查连接频率
+	// 2. 检查连接频率（宽松：单次超限仅计数，连续 banThreshold 次才封禁）
 	if last, ok := g.lastConn[ip]; ok {
 		if time.Since(last) < g.minInterval {
-			log.Printf("[安全] IP %s 被拒绝（连接频率过高）", ip)
-			g.ban(ip, "连接频率过高")
+			g.misbehavior[ip]++
+			if g.misbehavior[ip] >= g.banThreshold {
+				g.ban(ip, "连接频率过高")
+				g.misbehavior[ip] = 0
+			} else {
+				log.Printf("[安全] IP %s 连接频率过高 +1 (%d/%d)，暂不封禁", ip, g.misbehavior[ip], g.banThreshold)
+			}
 			return false
 		}
 	}
 
-	// 3. 检查连接数
+	// 3. 检查连接数（宽松：单次超限仅计数，连续 banThreshold 次才封禁）
 	if g.connCount[ip] >= g.maxConn {
-		log.Printf("[安全] IP %s 被拒绝（连接数过多: %d）", ip, g.connCount[ip])
-		g.ban(ip, "连接数过多")
+		g.misbehavior[ip]++
+		if g.misbehavior[ip] >= g.banThreshold {
+			g.ban(ip, "连接数过多")
+			g.misbehavior[ip] = 0
+		} else {
+			log.Printf("[安全] IP %s 连接数过多 +1 (%d/%d)，暂不封禁", ip, g.misbehavior[ip], g.banThreshold)
+		}
 		return false
 	}
 
@@ -145,7 +160,8 @@ func (g *ConnGuard) Release(conn net.Conn) {
 	}
 }
 
-// BanForBadBehavior 因异常行为封禁 IP（白名单优先——不会封白名单中的 IP）
+// BanForBadBehavior 记录一次异常行为；连续 banThreshold 次异常才真正封禁。
+// 单次网络抖动 / EOF 不封禁，仅计数（宽松策略）；白名单 IP 始终免于封禁。
 func (g *ConnGuard) BanForBadBehavior(conn net.Conn, reason string) {
 	ip := getIP(conn)
 	if g.isWhitelisted(ip) {
@@ -153,7 +169,20 @@ func (g *ConnGuard) BanForBadBehavior(conn net.Conn, reason string) {
 	}
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.ban(ip, reason)
+	g.misbehavior[ip]++
+	if g.misbehavior[ip] >= g.banThreshold {
+		g.ban(ip, fmt.Sprintf("%s (连续%d次异常)", reason, g.misbehavior[ip]))
+		g.misbehavior[ip] = 0 // 已封禁，清零等待下次循环
+	} else {
+		log.Printf("[安全] IP %s 异常行为 +1 (%d/%d)，暂不封禁", ip, g.misbehavior[ip], g.banThreshold)
+	}
+}
+
+// ClearMisbehavior 清除指定 IP 的异常计数（登录成功后调用，避免误封正常客户端）
+func (g *ConnGuard) ClearMisbehavior(ip string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	delete(g.misbehavior, ip)
 }
 
 // BanIP 直接封禁指定 IP（白名单优先——不会封白名单中的 IP）

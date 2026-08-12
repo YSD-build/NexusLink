@@ -334,9 +334,15 @@ func (s *Server) handleClient(conn net.Conn) {
 	// 读取登录消息（第二防：协议层校验在 ReadMessage 内部）
 	msg, err := protocol.ReadMessage(conn)
 	if err != nil {
-		s.addLog(fmt.Sprintf("[%s] 读取登录消息失败: %v", remoteAddr, err))
-		// 协议校验失败，拉黑
-		s.connGuard.BanForBadBehavior(conn, err.Error())
+		if err == io.EOF {
+			// EOF：客户端在登录前关闭连接（网络抖动 / NAT 波动 / 正常断开）
+			// 宽松策略：不封禁，仅记录
+			s.addLog(fmt.Sprintf("[%s] 登录前连接关闭(EOF)，网络波动不封禁", remoteAddr))
+		} else {
+			s.addLog(fmt.Sprintf("[%s] 读取登录消息失败: %v", remoteAddr, err))
+			// 协议异常：连续多次才封禁（由 ConnGuard 阈值控制）
+			s.connGuard.BanForBadBehavior(conn, err.Error())
+		}
 		return
 	}
 
@@ -365,6 +371,10 @@ func (s *Server) handleClient(conn net.Conn) {
 	// 登录成功
 	conn.SetReadDeadline(time.Time{})
 	protocol.WriteMessage(conn, protocol.TypeLoginResp, protocol.LoginResp{Success: true})
+	// 登录成功 → 清除该 IP 的异常计数，避免历史抖动导致后续误封
+	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		s.connGuard.ClearMisbehavior(host)
+	}
 	s.addLog(fmt.Sprintf("[%s] 客户端认证成功", remoteAddr))
 
 	// 多客户端：每个连接分配独立 ID，代理按 Owner 归属，断开时只清理自己的代理
