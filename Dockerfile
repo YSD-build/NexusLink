@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 # NexusLink 服务端多阶段构建
-FROM golang:1.22-alpine AS builder
+FROM golang:1.25-alpine AS builder
 WORKDIR /build
 COPY go.mod go.sum ./
 RUN go mod download
