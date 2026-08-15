@@ -245,6 +245,93 @@ server_port: 7000
 token: test123
 ```
 ---
+## 🔗 多租户与开放 API（v0.4.1+）
+
+面向"给每个客户独立凭据 / 计量流量 / 程序对接"的商业化场景。
+
+### 1. 给客户端分配独立密码（token）
+
+`server.yaml` 配置 `clients` 列表，每个客户端独立 token 与配额：
+
+```yaml
+token: master_token               # 主 token（未托管客户端仍可用，向后兼容）
+clients:                          # 可选：托管客户端
+  - name: customer-a
+    token: token_a_123            # 客户 A 专属密码
+    max_tunnels: 3                # 隧道数上限（0=不限）
+    max_traffic_bytes: 1073741824 # 流量上限（0=不限）
+  - name: customer-b
+    token: token_b_456
+    max_tunnels: 5
+    max_traffic_bytes: 0
+api_keys:
+  - dev_api_key_789               # 开放 API 密钥（/api/v1/*）
+```
+
+**给客户 A 的 `client.yaml`**：
+```yaml
+server_ip: your-server-ip
+server_port: 7000
+token: token_a_123                # 用客户专属密码
+proxies:
+  web:
+    type: tcp
+    port: 443
+    localaddr: 127.0.0.1
+    localport: 8443
+```
+
+> **HTTPS 隧道场景**：服务端把 `443` 端口转发到客户内网的 `8443`（Nginx/HTTPS 服务），
+> 客户用自己的 token 连接即可。每个客户独立 token、独立流量、独立配额，互不影响。
+
+### 2. 流量校准 / 查询（开放 API）
+
+```bash
+# 查看所有客户端（含流量与配额）
+curl -H "X-API-Key: dev_api_key_789" http://server:7001/api/v1/clients
+
+# 查看单个客户端流量
+curl -H "X-API-Key: dev_api_key_789" http://server:7001/api/v1/clients/customer-a/traffic
+```
+响应示例：
+```json
+{ "client": { "name": "customer-a", "bytesIn": 308, "bytesOut": 7004,
+              "connected": true, "proxyCount": 1,
+              "maxTunnels": 3, "maxTrafficBytes": 1073741824 } }
+```
+
+### 3. 程序对接（完整 API 参考）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| `GET` | `/api/v1/clients` | 客户端列表（流量/配额/在线状态） |
+| `POST` | `/api/v1/clients` | 创建客户端凭据 `{name, token, max_tunnels, max_traffic_bytes}` |
+| `GET` | `/api/v1/clients/{name}/traffic` | 单客户端流量 |
+| `DELETE` | `/api/v1/clients/{name}` | 删除客户端并踢下线 |
+| `POST` | `/api/v1/proxies/close` | 下线隧道 `{name}` |
+
+**鉴权**：请求头 `X-API-Key: <server.yaml 的 api_keys 之一>`（独立于 Web 登录 session，供第三方程序使用）。
+
+**对接流程示例**（客户自助开隧道）：
+```bash
+# 1) 管理端创建客户凭据
+curl -X POST -H "X-API-Key: dev_api_key_789" -H "Content-Type: application/json" \
+  -d '{"name":"customer-c","token":"token_c_789","max_tunnels":2,"max_traffic_bytes":524288000}' \
+  http://server:7001/api/v1/clients
+
+# 2) 把 token_c_789 发给客户，客户配到 client.yaml 连接即可
+
+# 3) 定时轮询客户流量，超过配额可在服务端「隧道预览」下线其隧道
+curl -H "X-API-Key: dev_api_key_789" http://server:7001/api/v1/clients/customer-c/traffic
+```
+
+### 4. 安全说明
+- 未配置 `api_keys` 时，`/api/v1/*` 返回 503（开放接口默认关闭）
+- API Key 错误 / 缺失返回 401
+- 未配置 `clients` 时保持单 token 行为，老配置无缝兼容
+- 数据通道 HMAC 按客户端 token 独立签名，多租户互不串通
+
+---
 ## 📝 常见问题
 **Q: 提示 Permission denied?** — `chmod +x nexuslink-*`
 **Q: 提示 address already in use?** — 检查端口是否被占用，确认没有重复运行服务端。
