@@ -25,7 +25,7 @@ import (
 	"nexuslink/pkg/protocol"
 )
 
-var Version = "v0.5.0"
+var Version = "v0.5.1"
 
 // ErrAuthFailed 认证失败（token 错误/被服务端拒绝）。
 // 与网络类错误不同，认证失败属于配置问题，重试不会解决，应停止重连并提示用户。

@@ -19,7 +19,7 @@ curl -fsSL https://github.com/YSD-build/NexusLink/raw/main/scripts/install-nexus
 脚本自动检测架构、下载对应二进制、生成配置文件并创建系统服务。所有资产见下方 Release。
 ---
 # NexusLink · 高性能带认证内网穿透
-![Version](https://img.shields.io/badge/version-v0.5.0-4f6ef7)
+![Version](https://img.shields.io/badge/version-v0.5.1-4f6ef7)
 ![Docker](https://img.shields.io/badge/docker-ghcr.io%2Fysd-build%2Fnexuslink-blue?logo=docker)
 ![Platform](https://img.shields.io/badge/platform-Linux%2FWindows%2FAndroid%2FARM-green)
 ![License](https://img.shields.io/badge/license-GPL-3.0-green)
@@ -42,8 +42,8 @@ curl -fsSL https://github.com/YSD-build/NexusLink/raw/main/scripts/install-nexus
 - 📜 **GPL-3.0 开源**
 ---
 ## 📌 当前版本
+**v0.5.1** — 内嵌 SQLite 数据库驱动（DB 模式）：多租户数据落库 + 动态 API Key 管理；多语言 SDK（Python / Java / C / curl）对接第三方平台
 **v0.5.0** — 多租户凭据（独立 token/隧道数/流量配额）；按客户端流量计量与查询；开放 API v1（X-API-Key：创建/删除客户端、查流量、下线隧道）；数据通道按客户端 token 独立 HMAC
-**v0.5.0（主线）** — 多租户凭据（独立 token/配额）+ 按客户端流量计量 + 开放 API v1（X-API-Key）；数据通道按客户端 token 独立 HMAC
 **v0.4.0** — Web 面板 Vue 3 SPA 重构（组件化 + 现代简洁设计）；强制下线客户端/下线隧道；ConnGuard 白名单系统；宽松化封禁策略；客户端 token 认证失败明确提示
 **v0.3.7** — Web 面板重写为 Vue 3 SPA（零图标、离线内嵌）；内置 TLS（Web HTTPS + 隧道可选）；代理 ACL 访问控制；TCP 流量统计
 **v0.3.6** — 安全中心新增在线修改密码；主页文案全面更新；Release 与 Docker 发布全自动化
@@ -52,27 +52,27 @@ curl -fsSL https://github.com/YSD-build/NexusLink/raw/main/scripts/install-nexus
 > 下载与资产见下方「下载安装」。历史说明见 [Releases](https://github.com/YSD-build/NexusLink/releases)。📚 详细文档见 [Wiki](https://github.com/YSD-build/NexusLink/wiki)。
 ---
 ## 📦 下载安装
-所有资产发布在 **[v0.5.0 Release](https://github.com/YSD-build/NexusLink/releases/tag/v0.5.0)**。
+所有资产发布在 **[v0.5.1 Release](https://github.com/YSD-build/NexusLink/releases/tag/v0.5.1)**。
 ### 🖥️ 服务端（6 架构）
 | 架构 | 文件名 | 适用设备 |
 |------|--------|----------|
-| linux-x86_64 | `nexuslink-server-v0.5.0-linux-x86_64` | PC、云服务器、虚拟机 |
-| **linux-arm64** | `nexuslink-server-v0.5.0-linux-armv8` | ✅ ARM 服务器、树莓派 4/5 |
-| linux-armv7 | `nexuslink-server-v0.5.0-linux-armv7` | 路由器、树莓派 2/3 |
-| linux-armv6 | `nexuslink-server-v0.5.0-linux-armv6` | 旧嵌入式设备 |
-| windows-x86_64 | `nexuslink-server-v0.5.0-windows-x86_64.exe` | Windows PC (x64) |
-| windows-arm64 | `nexuslink-server-v0.5.0-windows-arm64.exe` | Windows ARM (骁龙 X) |
+| linux-x86_64 | `nexuslink-server-v0.5.1-linux-x86_64` | PC、云服务器、虚拟机 |
+| **linux-arm64** | `nexuslink-server-v0.5.1-linux-armv8` | ✅ ARM 服务器、树莓派 4/5 |
+| linux-armv7 | `nexuslink-server-v0.5.1-linux-armv7` | 路由器、树莓派 2/3 |
+| linux-armv6 | `nexuslink-server-v0.5.1-linux-armv6` | 旧嵌入式设备 |
+| windows-x86_64 | `nexuslink-server-v0.5.1-windows-x86_64.exe` | Windows PC (x64) |
+| windows-arm64 | `nexuslink-server-v0.5.1-windows-arm64.exe` | Windows ARM (骁龙 X) |
 ### 📱 客户端（6 版本）
 | 架构 | 文件名 | 适用设备 |
 |------|--------|----------|
-| **android-arm64** | `nexuslink-client-v0.5.0-android-arm64` | ✅ 骁龙、天玑、绝大多数安卓手机（Termux 无 Root） |
-| linux-x86_64 | `nexuslink-client-v0.5.0-linux-x86_64` | PC、虚拟机 |
-| linux-armv8 | `nexuslink-client-v0.5.0-linux-armv8` | ARM 服务器、树莓派 |
-| linux-armv7 | `nexuslink-client-v0.5.0-linux-armv7` | 路由器 |
-| linux-armv6 | `nexuslink-client-v0.5.0-linux-armv6` | 旧嵌入式设备 |
-| windows-x86_64 | `nexuslink-client-v0.5.0-windows-x86_64.exe` | Windows PC |
+| **android-arm64** | `nexuslink-client-v0.5.1-android-arm64` | ✅ 骁龙、天玑、绝大多数安卓手机（Termux 无 Root） |
+| linux-x86_64 | `nexuslink-client-v0.5.1-linux-x86_64` | PC、虚拟机 |
+| linux-armv8 | `nexuslink-client-v0.5.1-linux-armv8` | ARM 服务器、树莓派 |
+| linux-armv7 | `nexuslink-client-v0.5.1-linux-armv7` | 路由器 |
+| linux-armv6 | `nexuslink-client-v0.5.1-linux-armv6` | 旧嵌入式设备 |
+| windows-x86_64 | `nexuslink-client-v0.5.1-windows-x86_64.exe` | Windows PC |
 ### 🌐 Web 面板
-`nexuslink-web-panel-v0.5.0.zip` — 独立 Node.js 版管理面板（已内置 x86_64 二进制）。服务端二进制本身也已内置面板，直接访问 `web_addr:web_port` 即可。
+`nexuslink-web-panel-v0.5.1.zip` — 独立 Node.js 版管理面板（已内置 x86_64 二进制）。服务端二进制本身也已内置面板，直接访问 `web_addr:web_port` 即可。
 ### 🐳 Docker 部署
 镜像托管于 **ghcr.io**（自动构建多架构：linux/amd64、linux/arm64、linux/arm/v7）：
 ```bash
@@ -82,14 +82,14 @@ docker run -d --name nexuslink \
   -v /path/to/server.yaml:/app/server.yaml \
   ghcr.io/ysd-build/nexuslink:latest
 ```
-> 版本化镜像：`ghcr.io/ysd-build/nexuslink:0.5.0`（`v*` tag 自动触发构建发布）。默认配置见 `docker/server.yaml`。
+> 版本化镜像：`ghcr.io/ysd-build/nexuslink:0.5.1`（`v*` tag 自动触发构建发布）。默认配置见 `docker/server.yaml`。
 ---
 ## 🚀 快速开始
 ### 1️⃣ 服务端部署（公网服务器）
 ```bash
 # 以 ARM64 为例
-wget https://github.com/YSD-build/NexusLink/releases/download/v0.5.0/nexuslink-server-v0.5.0-linux-armv8
-chmod +x nexuslink-server-v0.5.0-linux-armv8
+wget https://github.com/YSD-build/NexusLink/releases/download/v0.5.1/nexuslink-server-v0.5.1-linux-armv8
+chmod +x nexuslink-server-v0.5.1-linux-armv8
 ```
 **`server.yaml`：**
 ```yaml
@@ -102,7 +102,7 @@ web_port: 7001
 web_password: admin123
 # web_trust_proxy: false   # 仅当服务端部署在可信反向代理后才设 true，才用 X-Forwarded-For 取客户端 IP
 ```
-**运行：** `./nexuslink-server-v0.5.0-linux-armv8 -c server.yaml`
+**运行：** `./nexuslink-server-v0.5.1-linux-armv8 -c server.yaml`
 正常输出：
 ```
 NexusLink Server v0.3.4 starting...
@@ -128,7 +128,7 @@ proxies:
     localaddr: 127.0.0.1
     localport: 9000
 ```
-**运行（Linux）：** `./nexuslink-client-v0.5.0-linux-armv8 -c client.yaml`
+**运行（Linux）：** `./nexuslink-client-v0.5.1-linux-armv8 -c client.yaml`
 正常输出：
 ```
 NexusLink Client v0.3.4 starting...
@@ -142,9 +142,9 @@ Registering proxy [game_udp] type=udp local=127.0.0.1:9000 remote=25566
 2. 下载 `android-arm64` 版本，Termux 中运行：
    ```bash
    pkg install wget
-   wget https://github.com/YSD-build/NexusLink/releases/download/v0.5.0/nexuslink-client-v0.5.0-android-arm64
-   chmod +x nexuslink-client-v0.5.0-android-arm64
-   ./nexuslink-client-v0.5.0-android-arm64 -c client.yaml
+   wget https://github.com/YSD-build/NexusLink/releases/download/v0.5.1/nexuslink-client-v0.5.1-android-arm64
+   chmod +x nexuslink-client-v0.5.1-android-arm64
+   ./nexuslink-client-v0.5.1-android-arm64 -c client.yaml
    ```
 ---
 ## ⚙️ 配置详解

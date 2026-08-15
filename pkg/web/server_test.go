@@ -18,7 +18,7 @@ func (mockPM) GetProxies() []ProxyInfo {
 }
 
 func (mockPM) GetStatus() StatusInfo {
-	return StatusInfo{Running: true, BindAddr: "0.0.0.0", BindPort: 7000, Version: "v0.5.0"}
+	return StatusInfo{Running: true, BindAddr: "0.0.0.0", BindPort: 7000, Version: "v0.5.1"}
 }
 
 func (mockPM) GetClients() []ClientInfo {
