@@ -36,6 +36,35 @@ func (mockPM) CloseProxy(name string) error {
 	return nil
 }
 
+// 开放 API mock
+func (mockPM) ListClientsTraffic() []ClientTrafficInfo {
+	return mockClientsTraffic()
+}
+
+func (mockPM) GetClientTraffic(name string) (ClientTrafficInfo, bool) {
+	for _, c := range mockClientsTraffic() {
+		if c.Name == name {
+			return c, true
+		}
+	}
+	return ClientTrafficInfo{}, false
+}
+
+func mockClientsTraffic() []ClientTrafficInfo {
+	return []ClientTrafficInfo{
+		{Name: "client-a", BytesIn: 100, BytesOut: 200, Connected: true, ProxyCount: 2, MaxTunnels: 5, MaxTrafficBytes: 1024},
+		{Name: "client-b", BytesIn: 0, BytesOut: 0, Connected: false, ProxyCount: 0, MaxTunnels: 0, MaxTrafficBytes: 0},
+	}
+}
+
+func (mockPM) AddManagedClient(name, token string, maxTunnels int, maxTrafficBytes int64) error {
+	return nil
+}
+
+func (mockPM) RemoveManagedClient(name string) error {
+	return nil
+}
+
 // 带踢下线记录的 mock：验证请求体中的 ID 被正确透传
 type kickRecorderPM struct {
 	mockPM
@@ -436,4 +465,158 @@ func TestCloseProxyMissingName(t *testing.T) {
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("缺少 name 应 400，得到 %d", resp.StatusCode)
 	}
+}
+
+// ==================== 开放 API v1 测试 ====================
+
+// 带 API Key 的测试 server（api_keys: ["test-key-1"]）
+func newV1TestServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	ws := NewWebServer(&WebConfig{AdminPassword: "admin123", APIKeys: []string{"test-key-1"}}, mockPM{})
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/clients", ws.apiKeyMiddleware(ws.v1HandleClients))
+	mux.HandleFunc("/api/v1/clients/", ws.apiKeyMiddleware(ws.v1HandleClientPath))
+	return httptest.NewServer(mux)
+}
+
+// 未配置 API Keys 时返回 503
+func TestV1APIKeyNotConfigured(t *testing.T) {
+	ws := NewWebServer(&WebConfig{AdminPassword: "admin123"}, mockPM{})
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/clients", ws.apiKeyMiddleware(ws.v1HandleClients))
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	resp, err := http.Get(srv.URL + "/api/v1/clients")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("未启用 API Key 应 503，得到 %d", resp.StatusCode)
+	}
+}
+
+// 无 Key / 错误 Key 返回 401
+func TestV1APIKeyAuth(t *testing.T) {
+	srv := newV1TestServer(t)
+	defer srv.Close()
+
+	// 无 Key
+	resp, _ := http.Get(srv.URL + "/api/v1/clients")
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("无 Key 应 401，得到 %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// 错误 Key
+	req, _ := http.NewRequest("GET", srv.URL+"/api/v1/clients", nil)
+	req.Header.Set("X-API-Key", "wrong")
+	resp, _ = http.DefaultClient.Do(req)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("错误 Key 应 401，得到 %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+// GET /api/v1/clients 返回客户端流量列表
+func TestV1ListClients(t *testing.T) {
+	srv := newV1TestServer(t)
+	defer srv.Close()
+
+	req, _ := http.NewRequest("GET", srv.URL+"/api/v1/clients", nil)
+	req.Header.Set("X-API-Key", "test-key-1")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET clients 应 200，得到 %d", resp.StatusCode)
+	}
+	var d struct {
+		Success bool                `json:"success"`
+		Clients []ClientTrafficInfo `json:"clients"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&d); err != nil {
+		t.Fatal(err)
+	}
+	if !d.Success || len(d.Clients) != 2 {
+		t.Fatalf("应返回 2 个客户端, got %+v", d)
+	}
+	if d.Clients[0].Name != "client-a" || d.Clients[0].BytesIn != 100 {
+		t.Fatalf("客户端流量信息不符: %+v", d.Clients[0])
+	}
+}
+
+// GET /api/v1/clients/{name}/traffic 单客户端流量
+func TestV1GetClientTraffic(t *testing.T) {
+	srv := newV1TestServer(t)
+	defer srv.Close()
+
+	req, _ := http.NewRequest("GET", srv.URL+"/api/v1/clients/client-a/traffic", nil)
+	req.Header.Set("X-API-Key", "test-key-1")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET traffic 应 200，得到 %d", resp.StatusCode)
+	}
+	var d struct {
+		Success bool              `json:"success"`
+		Client ClientTrafficInfo `json:"client"`
+	}
+	json.NewDecoder(resp.Body).Decode(&d)
+	if !d.Success || d.Client.Name != "client-a" || d.Client.BytesOut != 200 {
+		t.Fatalf("单客户端流量不符: %+v", d.Client)
+	}
+
+	// 不存在
+	req2, _ := http.NewRequest("GET", srv.URL+"/api/v1/clients/nope/traffic", nil)
+	req2.Header.Set("X-API-Key", "test-key-1")
+	resp2, _ := http.DefaultClient.Do(req2)
+	if resp2.StatusCode != http.StatusNotFound {
+		t.Fatalf("不存在客户端应 404，得到 %d", resp2.StatusCode)
+	}
+	resp2.Body.Close()
+}
+
+// POST /api/v1/clients 创建客户端（需要 name+token）
+func TestV1CreateClient(t *testing.T) {
+	srv := newV1TestServer(t)
+	defer srv.Close()
+
+	do := func(body string) *http.Response {
+		req, _ := http.NewRequest("POST", srv.URL+"/api/v1/clients", strings.NewReader(body))
+		req.Header.Set("X-API-Key", "test-key-1")
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp
+	}
+
+	// 缺字段 400
+	resp := do(`{"name":"x"}`)
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("缺 token 应 400，得到 %d", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// 正常创建 200
+	resp = do(`{"name":"client-c","token":"tok-c","max_tunnels":3,"max_traffic_bytes":1024}`)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("创建应 200，得到 %d", resp.StatusCode)
+	}
+	var d struct {
+		Success bool `json:"success"`
+	}
+	json.NewDecoder(resp.Body).Decode(&d)
+	if !d.Success {
+		t.Fatal("创建应 success")
+	}
+	resp.Body.Close()
 }

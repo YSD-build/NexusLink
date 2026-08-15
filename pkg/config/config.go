@@ -14,6 +14,8 @@ type ServerConfig struct {
 	BindAddr    string `yaml:"bind_addr"`
 	BindPort    int    `yaml:"bind_port"`
 	Token       string `yaml:"token"`
+	Clients     []ManagedClient `yaml:"clients"` // 多客户端凭据（可选，配置后按 token 识别客户端身份）
+	APIKeys     []string `yaml:"api_keys"`       // 开放 API Key（/api/v1/* 用 X-API-Key 鉴权）
 	WebEnable   bool   `yaml:"web_enable"`
 	WebAddr     string `yaml:"web_addr"`
 	WebPort     int    `yaml:"web_port"`
@@ -25,6 +27,16 @@ type ServerConfig struct {
 	BindTLSKey    string `yaml:"bind_tls_key"`
 	ProxyACL      ProxyACL `yaml:"proxy_acl"`   // 代理创建访问控制
 	Whitelist     []string `yaml:"whitelist"`    // 连接守卫白名单（单 IP 或 CIDR），命中后完全 bypass 检测
+}
+
+// ManagedClient 托管客户端凭据（v0.5.0 多租户）
+// 配置后：该 token 的客户端登录时被识别为对应客户端身份，可独立计量流量 / 配额管理。
+// 未配置 clients 时保持单 token 兼容行为（所有客户端共享主 token）。
+type ManagedClient struct {
+	Name            string `yaml:"name"`               // 客户端名称（唯一标识）
+	Token           string `yaml:"token"`              // 该客户端专属登录 token
+	MaxTunnels      int    `yaml:"max_tunnels"`        // 最大隧道数（0=不限）
+	MaxTrafficBytes int64  `yaml:"max_traffic_bytes"`  // 流量上限字节（0=不限）
 }
 
 // ProxyACL 代理创建访问控制（全部为空时不限制）

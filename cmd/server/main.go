@@ -47,6 +47,8 @@ type Proxy struct {
 	ClientConn net.Conn
 	Active     bool
 	Owner      string // 所属客户端 ID，断开时只清理本客户端代理（多客户端隔离）
+	ClientName string // 客户端身份名（多租户，用于流量聚合/配额）
+	Auth       *auth.Auth // 数据通道 HMAC 认证器（多租户：按客户端 token；未托管：主 token）
 	BytesIn    int64  // 入站字节（TCP，atomic）
 	BytesOut   int64  // 出站字节（TCP，atomic）
 
@@ -78,6 +80,21 @@ type Server struct {
 	tlsConf   *tls.Config       // 隧道 TLS（配置证书后非空）
 	mu        sync.RWMutex
 	startTime time.Time
+
+	// 多租户（v0.5.0）：token -> 托管客户端配置
+	managedByToken map[string]config.ManagedClient
+	// 连接身份：clientID -> 客户端名称（未托管的连接映射到默认名）
+	clientNames map[string]string
+	// 客户端流量聚合：客户端名称 -> 累计流量（按连接在线期间累计）
+	clientTraffic map[string]*ClientTraffic
+}
+
+// ClientTraffic 客户端累计流量（按名称聚合，跨连接累计）
+type ClientTraffic struct {
+	BytesIn    int64 `json:"bytesIn"`
+	BytesOut   int64 `json:"bytesOut"`
+	Connected  bool  `json:"connected"`
+	ProxyCount int   `json:"proxyCount"`
 }
 
 // GetProxies 获取代理列表（实现ProxyManager接口）
@@ -162,8 +179,15 @@ func (s *Server) GetClients() []web.ClientInfo {
 				proxyCount++
 			}
 		}
+		name := "default"
+		if s.clientNames != nil {
+			if n, ok := s.clientNames[id]; ok {
+				name = n
+			}
+		}
 		clients = append(clients, web.ClientInfo{
 			ID:          id,
+			Name:        name,
 			Addr:        conn.RemoteAddr().String(),
 			ConnectedAt: clientConnectedAt(id),
 			ProxyCount:  proxyCount,
@@ -252,6 +276,27 @@ func main() {
 		clients:   make(map[string]net.Conn),
 		connGuard: mustConnGuard(cfg.Whitelist), // 初始化连接守卫（带白名单）
 		startTime: time.Now(),
+		clientTraffic: make(map[string]*ClientTraffic),
+	}
+
+	// 构建托管客户端索引（token -> 客户端配置）
+	if len(cfg.Clients) > 0 {
+		server.managedByToken = make(map[string]config.ManagedClient, len(cfg.Clients))
+		for _, c := range cfg.Clients {
+			if c.Name == "" || c.Token == "" {
+				log.Printf("[WARN] 忽略无效客户端配置（name/token 不能为空）: %+v", c)
+				continue
+			}
+			if _, dup := server.managedByToken[c.Token]; dup {
+				log.Printf("[WARN] 客户端 token 重复: %s，后配置覆盖前配置", c.Token)
+			}
+			server.managedByToken[c.Token] = c
+			log.Printf("[多租户] 已登记客户端 [%s]（隧道上限 %d，流量上限 %d bytes）", c.Name, c.MaxTunnels, c.MaxTrafficBytes)
+		}
+		server.clientNames = make(map[string]string)
+	}
+	if len(cfg.APIKeys) > 0 {
+		log.Printf("[API] 已配置 %d 个 API Key（/api/v1/* 开放接口）", len(cfg.APIKeys))
 	}
 
 	log.Printf("NexusLink Server %s starting...", Version)
@@ -273,6 +318,7 @@ func main() {
 			SettingsFile:  settingsFile,
 			CertFile:      cfg.WebTLSCert,
 			KeyFile:       cfg.WebTLSKey,
+			APIKeys:       cfg.APIKeys,
 		}
 		server.webServer = web.NewWebServer(webCfg, server)
 		if err := server.webServer.Start(); err != nil {
@@ -359,13 +405,23 @@ func (s *Server) handleClient(conn net.Conn) {
 	}
 
 	// 验证token（第三防：应用层）
-	if subtle.ConstantTimeCompare([]byte(login.Token), []byte(s.cfg.Token)) != 1 {
-		s.addLog(fmt.Sprintf("[%s] Token无效", remoteAddr))
-		protocol.WriteMessage(conn, protocol.TypeLoginResp, protocol.LoginResp{
-			Success: false,
-			Error:   "invalid token",
-		})
-		return
+	// 多租户：先匹配托管客户端 token（识别身份），未命中回退主 token（向后兼容单 token）
+	clientName := ""
+	if s.managedByToken != nil {
+		if mc, ok := s.managedByToken[login.Token]; ok {
+			clientName = mc.Name
+		}
+	}
+	if clientName == "" {
+		if subtle.ConstantTimeCompare([]byte(login.Token), []byte(s.cfg.Token)) != 1 {
+			s.addLog(fmt.Sprintf("[%s] Token无效", remoteAddr))
+			protocol.WriteMessage(conn, protocol.TypeLoginResp, protocol.LoginResp{
+				Success: false,
+				Error:   "invalid token",
+			})
+			return
+		}
+		clientName = "default"
 	}
 
 	// 登录成功
@@ -375,12 +431,19 @@ func (s *Server) handleClient(conn net.Conn) {
 	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
 		s.connGuard.ClearMisbehavior(host)
 	}
-	s.addLog(fmt.Sprintf("[%s] 客户端认证成功", remoteAddr))
+	s.addLog(fmt.Sprintf("[%s] 客户端认证成功（身份: %s）", remoteAddr, clientName))
 
 	// 多客户端：每个连接分配独立 ID，代理按 Owner 归属，断开时只清理自己的代理
 	clientID := fmt.Sprintf("%s-%d", remoteAddr, time.Now().UnixNano())
 	s.mu.Lock()
 	s.clients[clientID] = conn
+	if s.clientNames != nil {
+		s.clientNames[clientID] = clientName
+	}
+	// 初始化流量聚合（存在则保留历史累计，不存在则新建）
+	if s.clientTraffic[clientName] == nil {
+		s.clientTraffic[clientName] = &ClientTraffic{}
+	}
 	s.mu.Unlock()
 
 	// 处理后续消息
@@ -471,6 +534,7 @@ func (s *Server) handleNewProxy(conn net.Conn, msg *protocol.Message, clientID s
 		return
 	}
 
+	clientName := s.clientNameForLocked(clientID) // 调用方已持 s.mu 写锁
 	proxy := &Proxy{
 		Name:       newProxy.Name,
 		Type:       newProxy.Type,
@@ -478,6 +542,8 @@ func (s *Server) handleNewProxy(conn net.Conn, msg *protocol.Message, clientID s
 		ClientConn: conn,
 		Active:     true,
 		Owner:      clientID,
+		ClientName: clientName,
+		Auth:       s.authForClientLocked(clientName),
 	}
 
 	switch newProxy.Type {
@@ -628,6 +694,9 @@ func (s *Server) handleTCPUserConnection(proxy *Proxy, userConn net.Conn) {
 func (s *Server) forwardWithAuth(userConn, clientConn net.Conn, connID string, proxy *Proxy) {
 	errChan := make(chan error, 2)
 	bufSize := 32 * 1024
+	if proxy.Auth == nil {
+		proxy.Auth = s.auth // 防御：未设置时回退主 token 认证器
+	}
 
 	// user -> client (签名)
 	go func() {
@@ -636,7 +705,8 @@ func (s *Server) forwardWithAuth(userConn, clientConn net.Conn, connID string, p
 			n, err := userConn.Read(buf)
 			if n > 0 {
 				atomic.AddInt64(&proxy.BytesIn, int64(n))
-				signed := s.auth.SignFramed(buf[:n])
+				s.addClientTraffic(proxy.ClientName, int64(n), 0)
+				signed := proxy.Auth.SignFramed(buf[:n])
 				_, writeErr := clientConn.Write(signed)
 				if writeErr != nil {
 					errChan <- writeErr
@@ -653,12 +723,13 @@ func (s *Server) forwardWithAuth(userConn, clientConn net.Conn, connID string, p
 	// client -> user (验证) - 使用 ReadFramed 确保每次读取完整帧
 	go func() {
 		for {
-			data, err := s.auth.ReadFramed(clientConn)
+			data, err := proxy.Auth.ReadFramed(clientConn)
 			if err != nil {
 				errChan <- err
 				return
 			}
 			atomic.AddInt64(&proxy.BytesOut, int64(len(data)))
+			s.addClientTraffic(proxy.ClientName, 0, int64(len(data)))
 			_, writeErr := userConn.Write(data)
 			if writeErr != nil {
 				errChan <- writeErr
@@ -700,7 +771,7 @@ func (s *Server) handleUDPConnections(proxy *Proxy) {
 // sendUDPToClient 通过独立 UDP 数据通道把封装好的 envelope 发往 client（带 HMAC 签名）。
 // client 数据通道地址未知时先缓存，待 handleUDPDataChannel 收到首包登记地址后 flush。
 func (s *Server) sendUDPToClient(proxy *Proxy, env protocol.UDPEnvelope) {
-	signed := s.auth.Sign(protocol.MarshalEnvelope(env))
+	signed := proxy.Auth.Sign(protocol.MarshalEnvelope(env))
 	if len(signed) > 65507 {
 		return // 单包过大，丢弃
 	}
@@ -737,14 +808,14 @@ func (s *Server) handleUDPDataChannel(proxy *Proxy) {
 			proxy.pendingOut = nil
 			proxy.sessionMu.Unlock()
 			for _, env := range pending {
-				signed := s.auth.Sign(protocol.MarshalEnvelope(env))
+				signed := proxy.Auth.Sign(protocol.MarshalEnvelope(env))
 				_, _ = proxy.UDPDataConn.WriteToUDP(signed, addr)
 			}
 		} else {
 			proxy.sessionMu.Unlock()
 		}
 
-		data, ok := s.auth.Verify(buf[:n])
+		data, ok := proxy.Auth.Verify(buf[:n])
 		if !ok {
 			continue // 签名无效：忽略（可接入 ConnGuard 拉黑）
 		}
@@ -902,4 +973,185 @@ func mustConnGuard(whitelist []string) *security.ConnGuard {
 		log.Fatalf("Load conn_guard whitelist failed: %v", err)
 	}
 	return g
+}
+
+// clientNameFor 返回 clientID 对应的客户端身份名（默认 "default"）
+func (s *Server) clientNameFor(clientID string) string {
+	if s.clientNames == nil {
+		return "default"
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.clientNameForLocked(clientID)
+}
+
+// clientNameForLocked 返回客户端身份名（调用方须已持有 s.mu 读锁或写锁）
+func (s *Server) clientNameForLocked(clientID string) string {
+	if s.clientNames == nil {
+		return "default"
+	}
+	if name, ok := s.clientNames[clientID]; ok {
+		return name
+	}
+	return "default"
+}
+
+// addClientTraffic 将流量累加到客户端聚合（按客户端名称）
+func (s *Server) addClientTraffic(clientName string, in, out int64) {
+	if clientName == "" || clientName == "default" {
+		return // 未托管客户端不计入多租户流量（兼容模式）
+	}
+	s.mu.Lock()
+	ct := s.clientTraffic[clientName]
+	if ct == nil {
+		ct = &ClientTraffic{}
+		s.clientTraffic[clientName] = ct
+	}
+	atomic.AddInt64(&ct.BytesIn, in)
+	atomic.AddInt64(&ct.BytesOut, out)
+	s.mu.Unlock()
+}
+
+// ListClientsTraffic 列出所有托管客户端及其流量/配额（开放 API）
+func (s *Server) ListClientsTraffic() []web.ClientTrafficInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	// 收集所有已知客户端名（托管配置 + 在线连接）
+	names := map[string]bool{}
+	for _, mc := range s.managedByToken {
+		names[mc.Name] = true
+	}
+	for _, name := range s.clientNames {
+		names[name] = true
+	}
+
+	out := make([]web.ClientTrafficInfo, 0, len(names))
+	for name := range names {
+		ct := s.clientTraffic[name]
+		var bytesIn, bytesOut int64
+		connected := false
+		proxyCount := 0
+		if ct != nil {
+			bytesIn = atomic.LoadInt64(&ct.BytesIn)
+			bytesOut = atomic.LoadInt64(&ct.BytesOut)
+			connected = ct.Connected
+			proxyCount = ct.ProxyCount
+		}
+		// 动态统计在线状态与代理数
+		for _, n := range s.clientNames {
+			if n == name {
+				connected = true
+			}
+		}
+		for _, p := range s.proxies {
+			if p.ClientName == name {
+				proxyCount++
+			}
+		}
+		var mc config.ManagedClient
+		for _, m := range s.managedByToken {
+			if m.Name == name {
+				mc = m
+				break
+			}
+		}
+		out = append(out, web.ClientTrafficInfo{
+			Name:            name,
+			BytesIn:         bytesIn,
+			BytesOut:        bytesOut,
+			Connected:       connected,
+			ProxyCount:      proxyCount,
+			MaxTunnels:      mc.MaxTunnels,
+			MaxTrafficBytes: mc.MaxTrafficBytes,
+		})
+	}
+	return out
+}
+
+// GetClientTraffic 查询单个客户端流量（开放 API）
+func (s *Server) GetClientTraffic(name string) (web.ClientTrafficInfo, bool) {
+	infos := s.ListClientsTraffic()
+	for _, info := range infos {
+		if info.Name == name {
+			return info, true
+		}
+	}
+	return web.ClientTrafficInfo{}, false
+}
+
+// AddManagedClient 动态添加托管客户端（开放 API POST /api/v1/clients）
+func (s *Server) AddManagedClient(name, token string, maxTunnels int, maxTrafficBytes int64) error {
+	if name == "" || token == "" {
+		return fmt.Errorf("name 与 token 不能为空")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.managedByToken == nil {
+		s.managedByToken = make(map[string]config.ManagedClient)
+	}
+	// 检查 name / token 冲突
+	for _, mc := range s.managedByToken {
+		if mc.Name == name {
+			return fmt.Errorf("客户端 [%s] 已存在", name)
+		}
+		if mc.Token == token {
+			return fmt.Errorf("token 已被客户端 [%s] 使用", mc.Name)
+		}
+	}
+	s.managedByToken[token] = config.ManagedClient{
+		Name:            name,
+		Token:           token,
+		MaxTunnels:      maxTunnels,
+		MaxTrafficBytes: maxTrafficBytes,
+	}
+	if s.clientTraffic[name] == nil {
+		s.clientTraffic[name] = &ClientTraffic{}
+	}
+	s.addLog(fmt.Sprintf("[多租户] API 新增客户端 [%s]（隧道上限 %d，流量上限 %d）", name, maxTunnels, maxTrafficBytes))
+	return nil
+}
+
+// RemoveManagedClient 删除托管客户端并踢下线（开放 API DELETE /api/v1/clients/{name}）
+func (s *Server) RemoveManagedClient(name string) error {
+	s.mu.Lock()
+	found := false
+	for t, mc := range s.managedByToken {
+		if mc.Name == name {
+			found = true
+			delete(s.managedByToken, t)
+			break
+		}
+	}
+	// 收集该客户端的所有连接
+	var conns []net.Conn
+	for id, conn := range s.clients {
+		if s.clientNames[id] == name {
+			conns = append(conns, conn)
+		}
+	}
+	s.mu.Unlock()
+
+	if !found && len(conns) == 0 {
+		return fmt.Errorf("客户端 [%s] 不存在", name)
+	}
+	for _, conn := range conns {
+		conn.Close() // 触发断开清理
+	}
+	s.addLog(fmt.Sprintf("[多租户] API 删除客户端 [%s]", name))
+	return nil
+}
+
+// authForClientLocked 返回客户端身份对应的数据通道认证器（调用方须已持有 s.mu 读锁或写锁）
+// 多租户：使用该客户端专属 token；未托管客户端：使用主 token（向后兼容）
+func (s *Server) authForClientLocked(clientName string) *auth.Auth {
+	if clientName != "" && clientName != "default" && s.managedByToken != nil {
+		for _, mc := range s.managedByToken {
+			if mc.Name == clientName {
+				return auth.NewAuth(mc.Token)
+			}
+		}
+	}
+	return s.auth
 }

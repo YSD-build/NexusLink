@@ -13,6 +13,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 )
@@ -36,6 +37,7 @@ type WebServer struct {
 	security      SecuritySettings
 	secMu         sync.RWMutex
 	settingsFile  string
+	apiKeys       map[string]bool // 开放 API Key（/api/v1/*）
 }
 
 type sessionInfo struct {
@@ -57,6 +59,18 @@ type WebConfig struct {
 	SettingsFile  string // web_settings.json 持久化路径
 	CertFile      string // Web 面板 HTTPS 证书（可选，配置即启用 HTTPS）
 	KeyFile       string // Web 面板 HTTPS 私钥
+	APIKeys       []string // 开放 API Key（/api/v1/* 用 X-API-Key 鉴权）
+}
+
+// ClientTrafficInfo 客户端流量与配额信息（开放 API 返回结构）
+type ClientTrafficInfo struct {
+	Name            string `json:"name"`
+	BytesIn         int64  `json:"bytesIn"`
+	BytesOut        int64  `json:"bytesOut"`
+	Connected       bool   `json:"connected"`
+	ProxyCount      int    `json:"proxyCount"`
+	MaxTunnels      int    `json:"maxTunnels"`
+	MaxTrafficBytes int64  `json:"maxTrafficBytes"`
 }
 
 // SecuritySettings 可调整的安全策略
@@ -66,6 +80,11 @@ type ProxyManager interface {
 	GetClients() []ClientInfo
 	KickClient(id string) error
 	CloseProxy(name string) error
+	// 开放 API（v0.5.0 多租户）
+	ListClientsTraffic() []ClientTrafficInfo
+	GetClientTraffic(name string) (ClientTrafficInfo, bool)
+	AddManagedClient(name, token string, maxTunnels int, maxTrafficBytes int64) error
+	RemoveManagedClient(name string) error
 }
 
 // ProxyInfo 代理信息
@@ -83,6 +102,7 @@ type ProxyInfo struct {
 // ClientInfo 在线客户端信息
 type ClientInfo struct {
 	ID          string `json:"id"`       // clientID（服务端内部唯一标识）
+	Name        string `json:"name"`     // 客户端名称（多租户身份；未托管为 "default"）
 	Addr        string `json:"addr"`     // 客户端来源地址
 	ConnectedAt string `json:"connectedAt"` // 连接时间（格式化）
 	ProxyCount  int    `json:"proxyCount"`  // 该客户端拥有的隧道数
@@ -127,6 +147,16 @@ func NewWebServer(cfg *WebConfig, proxyManager ProxyManager) *WebServer {
 		settingsFile: cfg.SettingsFile,
 	}
 
+	// 开放 API Key（/api/v1/*）
+	if len(cfg.APIKeys) > 0 {
+		ws.apiKeys = make(map[string]bool, len(cfg.APIKeys))
+		for _, k := range cfg.APIKeys {
+			if k != "" {
+				ws.apiKeys[k] = true
+			}
+		}
+	}
+
 	// 优先使用 web_settings.json 中持久化的管理密码（修改过密码后重启仍生效）
 	if settings.AdminPasswordHash != "" && settings.AdminPasswordSalt != "" {
 		ws.passwordHash = settings.AdminPasswordHash
@@ -165,6 +195,11 @@ func (ws *WebServer) Start() error {
 	mux.HandleFunc("/api/clients", ws.authMiddleware(ws.handleClients))
 	mux.HandleFunc("/api/clients/kick", ws.authMiddleware(ws.handleKickClient))
 	mux.HandleFunc("/api/proxies/close", ws.authMiddleware(ws.handleCloseProxy))
+
+	// 开放 API v1（X-API-Key 鉴权，供第三方程序对接）
+	mux.HandleFunc("/api/v1/clients", ws.apiKeyMiddleware(ws.v1HandleClients))
+	mux.HandleFunc("/api/v1/clients/", ws.apiKeyMiddleware(ws.v1HandleClientPath))
+	mux.HandleFunc("/api/v1/proxies/close", ws.apiKeyMiddleware(ws.v1HandleCloseProxy))
 
 	addr := ws.config.Addr
 	if addr == "" {
@@ -644,3 +679,127 @@ func itoa(n int) string {
 }
 
 // ==================== 设置与 AI 巡查 ====================
+
+// ==================== 开放 API v1（API Key 鉴权） ====================
+
+// apiKeyMiddleware 校验 X-API-Key 请求头（供第三方程序对接，独立于 Web 登录 session）
+func (ws *WebServer) apiKeyMiddleware(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if len(ws.apiKeys) == 0 {
+			http.Error(w, `{"success":false,"error":"开放 API 未启用（server.yaml 配置 api_keys）"}`, http.StatusServiceUnavailable)
+			return
+		}
+		key := r.Header.Get("X-API-Key")
+		if key == "" || !ws.apiKeys[key] {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "invalid API key"})
+			return
+		}
+		next(w, r)
+	}
+}
+
+// GET /api/v1/clients  → 客户端列表（含流量与配额）
+// POST /api/v1/clients → 创建客户端凭据 {name, token, max_tunnels, max_traffic_bytes}
+func (ws *WebServer) v1HandleClients(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	switch r.Method {
+	case http.MethodGet:
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"success": true,
+			"clients": ws.proxyManager.ListClientsTraffic(),
+		})
+	case http.MethodPost:
+		var req struct {
+			Name            string `json:"name"`
+			Token           string `json:"token"`
+			MaxTunnels      int    `json:"max_tunnels"`
+			MaxTrafficBytes int64  `json:"max_traffic_bytes"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" || req.Token == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "需要 name 与 token"})
+			return
+		}
+		if err := ws.proxyManager.AddManagedClient(req.Name, req.Token, req.MaxTunnels, req.MaxTrafficBytes); err != nil {
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "method not allowed"})
+	}
+}
+
+// GET    /api/v1/clients/{name}/traffic → 单客户端流量
+// GET    /api/v1/clients/{name}         → 单客户端详情
+// DELETE /api/v1/clients/{name}         → 删除客户端并踢下线
+func (ws *WebServer) v1HandleClientPath(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1/clients/")
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "缺少客户端名称"})
+		return
+	}
+	name := parts[0]
+
+	switch r.Method {
+	case http.MethodGet:
+		if len(parts) >= 2 && parts[1] == "traffic" {
+			info, found := ws.proxyManager.GetClientTraffic(name)
+			if !found {
+				w.WriteHeader(http.StatusNotFound)
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "客户端不存在"})
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "client": info})
+			return
+		}
+		info, found := ws.proxyManager.GetClientTraffic(name)
+		if !found {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "客户端不存在"})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "client": info})
+	case http.MethodDelete:
+		if err := ws.proxyManager.RemoveManagedClient(name); err != nil {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "method not allowed"})
+	}
+}
+
+// POST /api/v1/proxies/close → 下线隧道 {name}
+func (ws *WebServer) v1HandleCloseProxy(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+	var req struct {
+		Name string `json:"name"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "缺少隧道名称"})
+		return
+	}
+	if err := ws.proxyManager.CloseProxy(req.Name); err != nil {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}

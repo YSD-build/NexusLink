@@ -18,7 +18,7 @@ func TestForwardWithAuthDropsTamperedPacket(t *testing.T) {
 	defer cliConn.Close()
 
 	s := &Server{auth: auth.NewAuth("test_token_123")}
-	proxy := &Proxy{}
+	proxy := &Proxy{Auth: s.auth}
 
 	done := make(chan struct{})
 	go func() {
@@ -58,7 +58,7 @@ func TestForwardWithAuthPassesValidPacket(t *testing.T) {
 	defer cliConn.Close()
 
 	s := &Server{auth: auth.NewAuth("test_token_123")}
-	proxy := &Proxy{}
+	proxy := &Proxy{Auth: s.auth}
 	go s.forwardWithAuth(srvUser, srvCli, "t2", proxy)
 
 // client 发送合法签名包后关闭
