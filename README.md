@@ -32,13 +32,17 @@ curl -fsSL https://github.com/YSD-build/NexusLink/raw/main/scripts/install-nexus
 - 🔁 **防重放**：5 分钟时间窗校验
 - 🛡️ **恒时比较**：`hmac.Equal` / `subtle.ConstantTimeCompare`，抵御时序攻击
 - 🌐 **TCP + UDP 双协议**：UDP 采用独立数据通道 + session 多路复用
-- 🚧 **连接守卫 ConnGuard**：单 IP 连接数/频率限制，异常行为自动封禁
+- 🚧 **连接守卫 ConnGuard**：单 IP 连接数/频率限制 + **白名单系统**，宽松化封禁（EOF 不封 / 阈值化 / 1 分钟恢复）
+- 👥 **多租户（v0.5.0）**：server.yaml `clients` 列表给每个客户端独立 token / 隧道数 / 流量配额
+- 📊 **流量计量**：按客户端聚合流量，`GET /api/v1/clients/{name}/traffic` 查询
+- 🔌 **开放 API（v0.5.0）**：`/api/v1/*` 用 `X-API-Key` 鉴权，创建/删除客户端、查流量、下线隧道
 - 📦 **零依赖**：纯 Go 编译，单文件二进制，跨平台
-- 🖥️ **Web 管理面板**：状态 / 配置 / 日志 / 隧道管理，登录失败锁定 + CSRF 防护
+- 🖥️ **Web 管理面板**：Vue 3 精简面板（概览 / 隧道预览 / 安全中心），强制下线客户端/下线隧道
 - ⚙️ **安全中心可调**：会话超时 / 失败锁定阈值 / 防护开关 / 自定义 CSP，实时生效
 - 📜 **GPL-3.0 开源**
 ---
 ## 📌 当前版本
+**v0.5.0（主线）** — 多租户凭据（独立 token/配额）+ 按客户端流量计量 + 开放 API v1（X-API-Key）；数据通道按客户端 token 独立 HMAC
 **v0.4.0** — Web 面板 Vue 3 SPA 重构（组件化 + 现代简洁设计）；强制下线客户端/下线隧道；ConnGuard 白名单系统；宽松化封禁策略；客户端 token 认证失败明确提示
 **v0.3.7** — Web 面板重写为 Vue 3 SPA（零图标、离线内嵌）；内置 TLS（Web HTTPS + 隧道可选）；代理 ACL 访问控制；TCP 流量统计
 **v0.3.6** — 安全中心新增在线修改密码；主页文案全面更新；Release 与 Docker 发布全自动化
@@ -245,7 +249,7 @@ server_port: 7000
 token: test123
 ```
 ---
-## 🔗 多租户与开放 API（v0.4.1+）
+## 🔗 多租户与开放 API（v0.5.0）
 
 面向"给每个客户独立凭据 / 计量流量 / 程序对接"的商业化场景。
 
