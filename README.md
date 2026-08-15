@@ -250,9 +250,26 @@ server_port: 7000
 token: test123
 ```
 ---
-## 🔗 多租户与开放 API（v0.5.0）
+## 🔗 多租户与开放 API（v0.5.0+）
 
 面向"给每个客户独立凭据 / 计量流量 / 程序对接"的商业化场景。
+
+### 0. 内嵌 SQLite 数据库（v0.6.0，推荐）
+
+多租户数据持久化到**内嵌 SQLite**（纯 Go、无 CGO、跨平台），支持运行时动态管理（免重启）：
+
+```yaml
+# server.yaml
+db_path: /data/nexuslink.db        # 内嵌 SQLite（默认 <配置目录>/nexuslink.db）
+token: master_token
+api_keys:
+  - dev_api_key_789               # 首个 API Key（也可用 API 动态创建）
+```
+
+- 首次启动：`clients` / `api_keys` 配置作为**种子数据**导入 DB
+- 之后：创建/删除客户端、API Key、流量全部读写 DB，**重启不丢**
+- API 新增后**立即生效**，无需重启
+- 未配置 `db_path` 时保持 config 驱动（向后兼容）
 
 ### 1. 给客户端分配独立密码（token）
 
@@ -330,11 +347,21 @@ curl -X POST -H "X-API-Key: dev_api_key_789" -H "Content-Type: application/json"
 curl -H "X-API-Key: dev_api_key_789" http://server:7001/api/v1/clients/customer-c/traffic
 ```
 
+**多语言 SDK**（Java / Python / C / curl 四种对接方式）见 [`sdk/`](sdk/README.md)：
+```bash
+# Python
+pip install requests
+python3 sdk/python/nexuslink_client.py http://SERVER:7001 dev_api_key_789 demo
+
+# curl
+./sdk/curl/nexuslink.sh dev_api_key_789 http://SERVER:7001 create-client customer-a tok_a_1 3 1048576
+```
+
 ### 4. 安全说明
-- 未配置 `api_keys` 时，`/api/v1/*` 返回 503（开放接口默认关闭）
 - API Key 错误 / 缺失返回 401
 - 未配置 `clients` 时保持单 token 行为，老配置无缝兼容
 - 数据通道 HMAC 按客户端 token 独立签名，多租户互不串通
+- DB 模式：客户端/API Key 落库持久化，API 动态管理立即生效
 
 ---
 ## 📝 常见问题
