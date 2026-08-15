@@ -492,8 +492,8 @@ func TestV1APIKeyNotConfigured(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusServiceUnavailable {
-		t.Fatalf("未启用 API Key 应 503，得到 %d", resp.StatusCode)
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("未配置 API Key 时任何 Key 都应 401，得到 %d", resp.StatusCode)
 	}
 }
 

@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"nexuslink/pkg/store"
 )
 
 //go:embed static/*
@@ -37,7 +39,8 @@ type WebServer struct {
 	security      SecuritySettings
 	secMu         sync.RWMutex
 	settingsFile  string
-	apiKeys       map[string]bool // 开放 API Key（/api/v1/*）
+	apiKeys       map[string]bool // 静态 API Key（向后兼容）
+	store         *store.Store    // 内嵌 SQLite（DB 驱动，动态 API Key）
 }
 
 type sessionInfo struct {
@@ -59,7 +62,8 @@ type WebConfig struct {
 	SettingsFile  string // web_settings.json 持久化路径
 	CertFile      string // Web 面板 HTTPS 证书（可选，配置即启用 HTTPS）
 	KeyFile       string // Web 面板 HTTPS 私钥
-	APIKeys       []string // 开放 API Key（/api/v1/* 用 X-API-Key 鉴权）
+	APIKeys       []string // 静态 API Key（向后兼容；DB 模式下以数据库为准）
+	Store         *store.Store // 内嵌 SQLite（DB 驱动，动态管理 API Key / 客户端）
 }
 
 // ClientTrafficInfo 客户端流量与配额信息（开放 API 返回结构）
@@ -156,6 +160,19 @@ func NewWebServer(cfg *WebConfig, proxyManager ProxyManager) *WebServer {
 			}
 		}
 	}
+	// DB 驱动：持有 store 引用（动态 API Key / 客户端管理）
+	ws.store = cfg.Store
+	if ws.store != nil {
+		if keys, err := ws.store.ListAPIKeys(); err == nil && len(keys) > 0 {
+			if ws.apiKeys == nil {
+				ws.apiKeys = make(map[string]bool)
+			}
+			for _, k := range keys {
+				ws.apiKeys[k.Key] = true
+			}
+			log.Printf("[API] 从数据库加载 %d 个 API Key", len(keys))
+		}
+	}
 
 	// 优先使用 web_settings.json 中持久化的管理密码（修改过密码后重启仍生效）
 	if settings.AdminPasswordHash != "" && settings.AdminPasswordSalt != "" {
@@ -200,6 +217,8 @@ func (ws *WebServer) Start() error {
 	mux.HandleFunc("/api/v1/clients", ws.apiKeyMiddleware(ws.v1HandleClients))
 	mux.HandleFunc("/api/v1/clients/", ws.apiKeyMiddleware(ws.v1HandleClientPath))
 	mux.HandleFunc("/api/v1/proxies/close", ws.apiKeyMiddleware(ws.v1HandleCloseProxy))
+	mux.HandleFunc("/api/v1/api-keys", ws.apiKeyMiddleware(ws.v1HandleAPIKeys))
+	mux.HandleFunc("/api/v1/api-keys/", ws.apiKeyMiddleware(ws.v1HandleAPIKeyPath))
 
 	addr := ws.config.Addr
 	if addr == "" {
@@ -683,20 +702,31 @@ func itoa(n int) string {
 // ==================== 开放 API v1（API Key 鉴权） ====================
 
 // apiKeyMiddleware 校验 X-API-Key 请求头（供第三方程序对接，独立于 Web 登录 session）
+// DB 驱动：动态查数据库（运行时新增 Key 立即生效），回退静态 map
 func (ws *WebServer) apiKeyMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if len(ws.apiKeys) == 0 {
-			http.Error(w, `{"success":false,"error":"开放 API 未启用（server.yaml 配置 api_keys）"}`, http.StatusServiceUnavailable)
-			return
-		}
 		key := r.Header.Get("X-API-Key")
-		if key == "" || !ws.apiKeys[key] {
+		if key == "" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "invalid API key"})
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "缺少 X-API-Key"})
 			return
 		}
-		next(w, r)
+		// DB 动态校验
+		if ws.store != nil {
+			if ok, _ := ws.store.HasAPIKey(key); ok {
+				next(w, r)
+				return
+			}
+		}
+		// 静态 map 回退
+		if len(ws.apiKeys) > 0 && ws.apiKeys[key] {
+			next(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "invalid API key"})
 	}
 }
 
@@ -801,5 +831,85 @@ func (ws *WebServer) v1HandleCloseProxy(w http.ResponseWriter, r *http.Request) 
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
 		return
 	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+// GET  /api/v1/api-keys         → 列出 API 密钥
+// POST /api/v1/api-keys         → 创建 API 密钥 {key, note}
+func (ws *WebServer) v1HandleAPIKeys(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if ws.store == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "未启用 DB 模式（db_path 未配置），API Key 管理不可用"})
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		keys, err := ws.store.ListAPIKeys()
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "api_keys": keys})
+	case http.MethodPost:
+		var req struct {
+			Key  string `json:"key"`
+			Note string `json:"note"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Key == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "需要 key"})
+			return
+		}
+		if err := ws.store.AddAPIKey(req.Key, req.Note); err != nil {
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		// 同步内存索引（立即生效）
+		if ws.apiKeys == nil {
+			ws.apiKeys = make(map[string]bool)
+		}
+		ws.apiKeys[req.Key] = true
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "method not allowed"})
+	}
+}
+
+// DELETE /api/v1/api-keys/{key} → 删除 API 密钥
+func (ws *WebServer) v1HandleAPIKeyPath(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if r.Method != http.MethodDelete {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "method not allowed"})
+		return
+	}
+	if ws.store == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "未启用 DB 模式"})
+		return
+	}
+	key := strings.TrimPrefix(r.URL.Path, "/api/v1/api-keys/")
+	key = strings.Trim(key, "/")
+	if key == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "缺少 key"})
+		return
+	}
+	ok, err := ws.store.DeleteAPIKey(key)
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+		return
+	}
+	if !ok {
+		w.WriteHeader(http.StatusNotFound)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "API Key 不存在"})
+		return
+	}
+	delete(ws.apiKeys, key)
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 }

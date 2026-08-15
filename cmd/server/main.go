@@ -21,6 +21,7 @@ import (
 	"nexuslink/pkg/config"
 	"nexuslink/pkg/protocol"
 	"nexuslink/pkg/security"
+	"nexuslink/pkg/store"
 	"nexuslink/pkg/web"
 )
 
@@ -87,6 +88,8 @@ type Server struct {
 	clientNames map[string]string
 	// 客户端流量聚合：客户端名称 -> 累计流量（按连接在线期间累计）
 	clientTraffic map[string]*ClientTraffic
+	// 内嵌 SQLite 存储（v0.6.0 DB 驱动；nil 表示未启用 DB 模式）
+	store *store.Store
 }
 
 // ClientTraffic 客户端累计流量（按名称聚合，跨连接累计）
@@ -279,19 +282,80 @@ func main() {
 		clientTraffic: make(map[string]*ClientTraffic),
 	}
 
-	// 构建托管客户端索引（token -> 客户端配置）
-	if len(cfg.Clients) > 0 {
+	// ===== 内嵌 SQLite 数据库（v0.6.0 DB 驱动）=====
+	// db_path 默认 <config目录>/nexuslink.db；配置后启用 DB 模式：
+	//   客户端凭据 / API Key / 流量全部存 DB，支持运行时动态管理（免重启）
+	//   server.yaml 的 clients / api_keys 作为首次启动的种子数据导入
+	dbPath := cfg.DBPath
+	if dbPath == "" {
+		dbPath = "nexuslink.db"
+		if *configFile != "" {
+			if dir := filepath.Dir(*configFile); dir != "." && dir != "" {
+				dbPath = filepath.Join(dir, "nexuslink.db")
+			}
+		}
+	}
+	st, err := store.Open(dbPath)
+	if err != nil {
+		log.Fatalf("Open store failed (%s): %v", dbPath, err)
+	}
+	defer st.Close()
+	server.store = st
+	log.Printf("[DB] 内嵌 SQLite 已打开: %s", dbPath)
+
+	// 种子导入：config 的 clients / api_keys 首次写入 DB（已存在则跳过）
+	for _, c := range cfg.Clients {
+		if c.Name == "" || c.Token == "" {
+			continue
+		}
+		if _, found, _ := st.GetClient(c.Name); !found {
+			if err := st.AddClient(c.Name, c.Token, c.MaxTunnels, c.MaxTrafficBytes); err != nil {
+				log.Printf("[WARN] 导入客户端 [%s] 失败: %v", c.Name, err)
+			} else {
+				log.Printf("[DB] 导入客户端 [%s]（隧道上限 %d，流量上限 %d）", c.Name, c.MaxTunnels, c.MaxTrafficBytes)
+			}
+		}
+	}
+	for _, k := range cfg.APIKeys {
+		if k == "" {
+			continue
+		}
+		if ok, _ := st.HasAPIKey(k); !ok {
+			if err := st.AddAPIKey(k, "config seed"); err != nil {
+				log.Printf("[WARN] 导入 API Key 失败: %v", err)
+			}
+		}
+	}
+
+	// 构建托管客户端索引（优先从 DB 加载；未启用 DB 时用 config）
+	if server.store != nil {
+		dbClients, err := st.ListClients()
+		if err != nil {
+			log.Printf("[WARN] 读取客户端列表失败: %v", err)
+		}
+		if len(dbClients) > 0 {
+			server.managedByToken = make(map[string]config.ManagedClient, len(dbClients))
+			for _, c := range dbClients {
+				server.managedByToken[c.Token] = config.ManagedClient{
+					Name:            c.Name,
+					Token:           c.Token,
+					MaxTunnels:      c.MaxTunnels,
+					MaxTrafficBytes: c.MaxTrafficBytes,
+				}
+				log.Printf("[多租户] 已登记客户端 [%s]（隧道上限 %d，流量上限 %d bytes）", c.Name, c.MaxTunnels, c.MaxTrafficBytes)
+			}
+			server.clientNames = make(map[string]string)
+		}
+	}
+	if server.managedByToken == nil && len(cfg.Clients) > 0 {
+		// 无 DB 或 DB 为空时，回退 config 驱动（向后兼容）
 		server.managedByToken = make(map[string]config.ManagedClient, len(cfg.Clients))
 		for _, c := range cfg.Clients {
 			if c.Name == "" || c.Token == "" {
-				log.Printf("[WARN] 忽略无效客户端配置（name/token 不能为空）: %+v", c)
 				continue
 			}
-			if _, dup := server.managedByToken[c.Token]; dup {
-				log.Printf("[WARN] 客户端 token 重复: %s，后配置覆盖前配置", c.Token)
-			}
 			server.managedByToken[c.Token] = c
-			log.Printf("[多租户] 已登记客户端 [%s]（隧道上限 %d，流量上限 %d bytes）", c.Name, c.MaxTunnels, c.MaxTrafficBytes)
+			log.Printf("[多租户] 已登记客户端 [%s]（config 驱动）", c.Name)
 		}
 		server.clientNames = make(map[string]string)
 	}
@@ -319,6 +383,7 @@ func main() {
 			CertFile:      cfg.WebTLSCert,
 			KeyFile:       cfg.WebTLSKey,
 			APIKeys:       cfg.APIKeys,
+			Store:         server.store,
 		}
 		server.webServer = web.NewWebServer(webCfg, server)
 		if err := server.webServer.Start(); err != nil {
@@ -410,6 +475,22 @@ func (s *Server) handleClient(conn net.Conn) {
 	if s.managedByToken != nil {
 		if mc, ok := s.managedByToken[login.Token]; ok {
 			clientName = mc.Name
+		}
+	}
+	// DB 驱动：若内存索引未命中，再查数据库（支持 API 运行时新增后立即生效）
+	if clientName == "" && s.store != nil {
+		if c, found, _ := s.store.GetClientByToken(login.Token); found {
+			clientName = c.Name
+			// 同步到内存索引（下次免查库）
+			s.mu.Lock()
+			if s.managedByToken == nil {
+				s.managedByToken = make(map[string]config.ManagedClient)
+				s.clientNames = make(map[string]string)
+			}
+			s.managedByToken[login.Token] = config.ManagedClient{
+				Name: c.Name, Token: c.Token, MaxTunnels: c.MaxTunnels, MaxTrafficBytes: c.MaxTrafficBytes,
+			}
+			s.mu.Unlock()
 		}
 	}
 	if clientName == "" {
@@ -1010,60 +1091,65 @@ func (s *Server) addClientTraffic(clientName string, in, out int64) {
 	atomic.AddInt64(&ct.BytesIn, in)
 	atomic.AddInt64(&ct.BytesOut, out)
 	s.mu.Unlock()
+
+	// DB 驱动：异步落库（避免阻塞数据转发路径）
+	if s.store != nil {
+		go func() {
+			if err := s.store.AddTraffic(clientName, in, out); err != nil {
+				log.Printf("[DB] 流量落库失败: %v", err)
+			}
+		}()
+	}
 }
 
 // ListClientsTraffic 列出所有托管客户端及其流量/配额（开放 API）
+// DB 驱动：以数据库记录为准（含历史流量累计），在线状态/代理数动态统计
 func (s *Server) ListClientsTraffic() []web.ClientTrafficInfo {
+	// 客户端基础信息（优先 DB，回退内存索引）
+	type base struct {
+		name            string
+		maxTunnels      int
+		maxTrafficBytes int64
+		bytesIn         int64
+		bytesOut        int64
+	}
+	baseMap := map[string]*base{}
+
+	if s.store != nil {
+		if dbClients, err := s.store.ListClients(); err == nil {
+			for _, c := range dbClients {
+				baseMap[c.Name] = &base{name: c.Name, maxTunnels: c.MaxTunnels, maxTrafficBytes: c.MaxTrafficBytes, bytesIn: c.BytesIn, bytesOut: c.BytesOut}
+			}
+		}
+	}
+	// 补充内存索引中 DB 未覆盖的（config 驱动 / 尚未落库）
 	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	// 收集所有已知客户端名（托管配置 + 在线连接）
-	names := map[string]bool{}
 	for _, mc := range s.managedByToken {
-		names[mc.Name] = true
+		if _, ok := baseMap[mc.Name]; !ok {
+			baseMap[mc.Name] = &base{name: mc.Name, maxTunnels: mc.MaxTunnels, maxTrafficBytes: mc.MaxTrafficBytes}
+		}
 	}
-	for _, name := range s.clientNames {
-		names[name] = true
+	// 在线状态 / 代理数
+	connectedSet := map[string]bool{}
+	for _, n := range s.clientNames {
+		connectedSet[n] = true
 	}
+	proxyCountMap := map[string]int{}
+	for _, p := range s.proxies {
+		proxyCountMap[p.ClientName]++
+	}
+	s.mu.RUnlock()
 
-	out := make([]web.ClientTrafficInfo, 0, len(names))
-	for name := range names {
-		ct := s.clientTraffic[name]
-		var bytesIn, bytesOut int64
-		connected := false
-		proxyCount := 0
-		if ct != nil {
-			bytesIn = atomic.LoadInt64(&ct.BytesIn)
-			bytesOut = atomic.LoadInt64(&ct.BytesOut)
-			connected = ct.Connected
-			proxyCount = ct.ProxyCount
-		}
-		// 动态统计在线状态与代理数
-		for _, n := range s.clientNames {
-			if n == name {
-				connected = true
-			}
-		}
-		for _, p := range s.proxies {
-			if p.ClientName == name {
-				proxyCount++
-			}
-		}
-		var mc config.ManagedClient
-		for _, m := range s.managedByToken {
-			if m.Name == name {
-				mc = m
-				break
-			}
-		}
+	out := make([]web.ClientTrafficInfo, 0, len(baseMap))
+	for name, b := range baseMap {
 		out = append(out, web.ClientTrafficInfo{
-			Name:            name,
-			BytesIn:         bytesIn,
-			BytesOut:        bytesOut,
-			Connected:       connected,
-			ProxyCount:      proxyCount,
-			MaxTunnels:      mc.MaxTunnels,
-			MaxTrafficBytes: mc.MaxTrafficBytes,
+			Name:            b.name,
+			BytesIn:         b.bytesIn,
+			BytesOut:        b.bytesOut,
+			Connected:       connectedSet[name],
+			ProxyCount:      proxyCountMap[name],
+			MaxTunnels:      b.maxTunnels,
+			MaxTrafficBytes: b.maxTrafficBytes,
 		})
 	}
 	return out
@@ -1081,22 +1167,24 @@ func (s *Server) GetClientTraffic(name string) (web.ClientTrafficInfo, bool) {
 }
 
 // AddManagedClient 动态添加托管客户端（开放 API POST /api/v1/clients）
+// DB 驱动：先写数据库（幂等），再同步内存索引
 func (s *Server) AddManagedClient(name, token string, maxTunnels int, maxTrafficBytes int64) error {
 	if name == "" || token == "" {
 		return fmt.Errorf("name 与 token 不能为空")
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
 
+	s.mu.Lock()
 	if s.managedByToken == nil {
 		s.managedByToken = make(map[string]config.ManagedClient)
 	}
-	// 检查 name / token 冲突
+	// 检查 name / token 冲突（内存索引）
 	for _, mc := range s.managedByToken {
 		if mc.Name == name {
+			s.mu.Unlock()
 			return fmt.Errorf("客户端 [%s] 已存在", name)
 		}
 		if mc.Token == token {
+			s.mu.Unlock()
 			return fmt.Errorf("token 已被客户端 [%s] 使用", mc.Name)
 		}
 	}
@@ -1109,11 +1197,24 @@ func (s *Server) AddManagedClient(name, token string, maxTunnels int, maxTraffic
 	if s.clientTraffic[name] == nil {
 		s.clientTraffic[name] = &ClientTraffic{}
 	}
+	s.mu.Unlock()
+
+	// DB 持久化（幂等：重复插入忽略）
+	if s.store != nil {
+		if _, found, _ := s.store.GetClient(name); !found {
+			if err := s.store.AddClient(name, token, maxTunnels, maxTrafficBytes); err != nil {
+				return fmt.Errorf("写入数据库失败: %v", err)
+			}
+		} else {
+			_ = s.store.UpdateClientQuota(name, maxTunnels, maxTrafficBytes)
+		}
+	}
 	s.addLog(fmt.Sprintf("[多租户] API 新增客户端 [%s]（隧道上限 %d，流量上限 %d）", name, maxTunnels, maxTrafficBytes))
 	return nil
 }
 
 // RemoveManagedClient 删除托管客户端并踢下线（开放 API DELETE /api/v1/clients/{name}）
+// DB 驱动：先删数据库，再清内存索引 + 踢连接
 func (s *Server) RemoveManagedClient(name string) error {
 	s.mu.Lock()
 	found := false
@@ -1133,7 +1234,12 @@ func (s *Server) RemoveManagedClient(name string) error {
 	}
 	s.mu.Unlock()
 
-	if !found && len(conns) == 0 {
+	dbDeleted := false
+	if s.store != nil {
+		dbDeleted, _ = s.store.DeleteClient(name)
+	}
+
+	if !found && !dbDeleted && len(conns) == 0 {
 		return fmt.Errorf("客户端 [%s] 不存在", name)
 	}
 	for _, conn := range conns {
