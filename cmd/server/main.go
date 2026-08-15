@@ -24,7 +24,7 @@ import (
 	"nexuslink/pkg/web"
 )
 
-var Version = "v0.4.0"
+var Version = "v0.5.0"
 
 var (
 	configFile = flag.String("c", "server.yaml", "config file path")
