@@ -1275,7 +1275,12 @@ func (s *Server) GetClientTraffic(name string) (web.ClientTrafficInfo, bool) {
 
 // AddManagedClient 动态添加托管客户端（开放 API POST /api/v1/clients）
 // DB 驱动：先写数据库（幂等），再同步内存索引
-func (s *Server) AddManagedClient(name, token string, maxTunnels int, maxTrafficBytes int64) error {
+func (s *Server) AddManagedClient(name, token string, maxTunnels int, maxTrafficBytes int64, owner string) error {
+	return s.AddManagedClientWithOwner(name, token, maxTunnels, maxTrafficBytes, owner)
+}
+
+// AddManagedClientWithOwner 创建托管客户端并指定所属用户（用户隔离）
+func (s *Server) AddManagedClientWithOwner(name, token string, maxTunnels int, maxTrafficBytes int64, owner string) error {
 	if name == "" || token == "" {
 		return fmt.Errorf("name 与 token 不能为空")
 	}
@@ -1309,7 +1314,7 @@ func (s *Server) AddManagedClient(name, token string, maxTunnels int, maxTraffic
 	// DB 持久化（幂等：重复插入忽略）
 	if s.store != nil {
 		if _, found, _ := s.store.GetClient(name); !found {
-			if err := s.store.AddClient(name, token, maxTunnels, maxTrafficBytes); err != nil {
+			if err := s.store.AddClientWithOwner(name, token, maxTunnels, maxTrafficBytes, owner); err != nil {
 				return fmt.Errorf("写入数据库失败: %v", err)
 			}
 		} else {

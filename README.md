@@ -340,6 +340,14 @@ curl -H "X-API-Key: dev_api_key_789" http://server:7001/api/v1/clients/customer-
 | `GET` | `/api/v1/api-keys` | API 密钥列表 |
 | `POST` | `/api/v1/api-keys` | 创建 API 密钥（立即生效） |
 | `DELETE` | `/api/v1/api-keys/{key}` | 删除 API 密钥 |
+| `GET` | `/api/v1/users` | 用户列表（管理员） |
+| `POST` | `/api/v1/users` | **创建用户** `{username, password, role?}`（管理员） |
+| `GET` | `/api/v1/users/{username}` | 用户详情（含 API token；管理员或本人） |
+| `DELETE` | `/api/v1/users/{username}` | 删除用户（管理员） |
+| `POST` | `/api/v1/users/{username}/reset-token` | 重置用户 API token（管理员或本人） |
+| `POST` | `/api/v1/users/{username}/password` | 修改密码（管理员或本人） |
+| `POST` | `/api/v1/users/{username}/disable\|enable` | 停用/启用用户（管理员） |
+| `POST` | `/api/v1/login` | 用户密码登录，换取 API token |
 
 **鉴权**：请求头 `X-API-Key: <server.yaml 的 api_keys 之一>`（独立于 Web 登录 session，供第三方程序使用）。
 
@@ -367,6 +375,28 @@ curl -X POST -H "X-API-Key: dev_api_key_789" http://server:7001/api/v1/proxies/w
 **隧道保存方式（v0.6.0 DB 驱动）**：隧道定义存服务端 SQLite（`proxies` 表），
 不再写在客户端 `client.yaml`。客户端连接后向服务端同步隧道列表并自动注册；
 平台通过 API 创建/删除/启停隧道，在线客户端触发重连即时生效。
+
+**用户体系（v0.6.0）**：按主流第三方平台方式，支持独立用户账号，商务多租户 / 个人自用：
+```
+用户(User) → 客户端(Client) → 隧道(Proxy)
+```
+- 管理员创建用户（每个用户自动生成独立 API token）；用户可改密、重置 token
+- 鉴权：`X-API-Key` 或 `Authorization: Bearer <token>`（全局 API Key = 管理员 / 用户 token = 该用户）
+- **资源隔离**：普通用户只能管理自己的客户端与隧道；管理员可管理一切
+- 个人自用：一个用户即可；商务：给每个客户建独立用户
+```bash
+# 管理员创建用户（自动生成 API token）
+curl -X POST -H "X-API-Key: admin_key" -H "Content-Type: application/json" \
+  -d '{"username":"customer-x","password":"pass123"}' http://server:7001/api/v1/users
+
+# 用户密码登录换取自己的 token（第三方对接更友好）
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"username":"customer-x","password":"pass123"}' http://server:7001/api/v1/login
+
+# 用户用自己 token 创建客户端/隧道（自动归属自己，与其他人隔离）
+curl -X POST -H "X-API-Key: <用户token>" -H "Content-Type: application/json" \
+  -d '{"name":"cx-client","token":"tok_x"}' http://server:7001/api/v1/clients
+```
 
 **Webhook 事件回调（v0.6.0）**：`server.yaml` 配置 `webhook_url` 后，
 客户端连接/断开、隧道创建/删除/下线/停用、流量超限时自动 POST JSON 事件到第三方平台：

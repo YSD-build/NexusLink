@@ -2,6 +2,7 @@
 package web
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -43,6 +44,17 @@ type WebServer struct {
 	apiKeys       map[string]bool // 静态 API Key（向后兼容）
 	store         *store.Store    // 内嵌 SQLite（DB 驱动，动态 API Key）
 }
+
+// apiIdentity API 调用者身份（全局 API Key = 管理员；用户 API Token = 对应用户）
+type apiIdentity struct {
+	Admin    bool   // 全局 API Key（可管理一切）
+	Username string // 用户 token 对应的用户名
+	Role     string // admin / user
+}
+
+type ctxKey string
+
+const identityKey ctxKey = "api_identity"
 
 type sessionInfo struct {
 	expireTime time.Time
@@ -89,7 +101,7 @@ type ProxyManager interface {
 	// 开放 API（v0.5.0 多租户）
 	ListClientsTraffic() []ClientTrafficInfo
 	GetClientTraffic(name string) (ClientTrafficInfo, bool)
-	AddManagedClient(name, token string, maxTunnels int, maxTrafficBytes int64) error
+	AddManagedClient(name, token string, maxTunnels int, maxTrafficBytes int64, owner string) error
 	RemoveManagedClient(name string) error
 	// NotifyClientSync 通知指定客户端的在线连接重新同步隧道（触发重连加载）
 	NotifyClientSync(clientName string) error
@@ -225,6 +237,9 @@ func (ws *WebServer) Start() error {
 	mux.HandleFunc("/api/v1/proxies/", ws.apiKeyMiddleware(ws.v1HandleProxyPath))
 	mux.HandleFunc("/api/v1/api-keys", ws.apiKeyMiddleware(ws.v1HandleAPIKeys))
 	mux.HandleFunc("/api/v1/api-keys/", ws.apiKeyMiddleware(ws.v1HandleAPIKeyPath))
+	mux.HandleFunc("/api/v1/users", ws.apiKeyMiddleware(ws.v1HandleUsers))
+	mux.HandleFunc("/api/v1/users/", ws.apiKeyMiddleware(ws.v1HandleUserPath))
+	mux.HandleFunc("/api/v1/login", ws.v1HandleLogin)
 
 	addr := ws.config.Addr
 	if addr == "" {
@@ -707,33 +722,66 @@ func itoa(n int) string {
 
 // ==================== 开放 API v1（API Key 鉴权） ====================
 
-// apiKeyMiddleware 校验 X-API-Key 请求头（供第三方程序对接，独立于 Web 登录 session）
-// DB 驱动：动态查数据库（运行时新增 Key 立即生效），回退静态 map
+// apiKeyMiddleware 鉴权并识别调用者身份：
+//   - 全局 API Key（server.yaml api_keys 或 DB api_keys 表）→ 管理员（可管理一切）
+//   - 用户 API Token（users.api_token）→ 该用户（仅管理自己的客户端/隧道）
+// 凭据来源：X-API-Key 请求头，或 Authorization: Bearer <token>
 func (ws *WebServer) apiKeyMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		key := r.Header.Get("X-API-Key")
 		if key == "" {
+			if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+				key = strings.TrimPrefix(h, "Bearer ")
+			}
+		}
+		if key == "" {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
-			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "缺少 X-API-Key"})
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "缺少 X-API-Key 或 Authorization: Bearer"})
 			return
 		}
-		// DB 动态校验
+		// 1) DB 全局 API Key → 管理员
 		if ws.store != nil {
 			if ok, _ := ws.store.HasAPIKey(key); ok {
-				next(w, r)
+				next(w, r.WithContext(context.WithValue(r.Context(), identityKey, apiIdentity{Admin: true, Role: "admin"})))
+				return
+			}
+			// 2) 用户 API Token → 对应用户
+			if u, ok, _ := ws.store.GetUserByToken(key); ok {
+				next(w, r.WithContext(context.WithValue(r.Context(), identityKey, apiIdentity{Username: u.Username, Role: u.Role})))
 				return
 			}
 		}
-		// 静态 map 回退
+		// 3) 静态 map 回退（管理员）
 		if len(ws.apiKeys) > 0 && ws.apiKeys[key] {
-			next(w, r)
+			next(w, r.WithContext(context.WithValue(r.Context(), identityKey, apiIdentity{Admin: true, Role: "admin"})))
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusUnauthorized)
-		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "invalid API key"})
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "invalid API key or token"})
 	}
+}
+
+// currentIdentity 从请求上下文取调用者身份
+func (ws *WebServer) currentIdentity(r *http.Request) apiIdentity {
+	if v, ok := r.Context().Value(identityKey).(apiIdentity); ok {
+		return v
+	}
+	return apiIdentity{Admin: true} // 兜底：未注入则视为管理员（不应发生）
+}
+
+// canAccessClient 判断当前身份是否能访问指定客户端（管理员全量 / 用户限自己）
+func (ws *WebServer) canAccessClient(r *http.Request, clientName string) bool {
+	id := ws.currentIdentity(r)
+	if id.Admin {
+		return true
+	}
+	if ws.store == nil {
+		return false
+	}
+	c, found, _ := ws.store.GetClient(clientName)
+	return found && c.Owner == id.Username
 }
 
 // GET /api/v1/clients  → 客户端列表（含流量与配额）
@@ -742,10 +790,45 @@ func (ws *WebServer) v1HandleClients(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	switch r.Method {
 	case http.MethodGet:
-		json.NewEncoder(w).Encode(map[string]interface{}{
-			"success": true,
-			"clients": ws.proxyManager.ListClientsTraffic(),
-		})
+		id := ws.currentIdentity(r)
+		all := ws.proxyManager.ListClientsTraffic()
+		if id.Admin {
+			// 管理员：附加客户端归属（owner）
+			ownerOf := map[string]string{}
+			if ws.store != nil {
+				if clis, err := ws.store.ListClients(); err == nil {
+					for _, c := range clis {
+						ownerOf[c.Name] = c.Owner
+					}
+				}
+			}
+			type clientRow struct {
+				ClientTrafficInfo
+				Owner string `json:"owner"`
+			}
+			rows := make([]clientRow, 0, len(all))
+			for _, c := range all {
+				rows = append(rows, clientRow{ClientTrafficInfo: c, Owner: ownerOf[c.Name]})
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "clients": rows})
+			return
+		}
+		// 用户：只返回自己拥有的客户端
+		mine := map[string]bool{}
+		if ws.store != nil {
+			if clis, err := ws.store.ListClientsByOwner(id.Username); err == nil {
+				for _, c := range clis {
+					mine[c.Name] = true
+				}
+			}
+		}
+		filtered := make([]ClientTrafficInfo, 0, len(all))
+		for _, c := range all {
+			if mine[c.Name] {
+				filtered = append(filtered, c)
+			}
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "clients": filtered})
 	case http.MethodPost:
 		var req struct {
 			Name            string `json:"name"`
@@ -758,7 +841,12 @@ func (ws *WebServer) v1HandleClients(w http.ResponseWriter, r *http.Request) {
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "需要 name 与 token"})
 			return
 		}
-		if err := ws.proxyManager.AddManagedClient(req.Name, req.Token, req.MaxTunnels, req.MaxTrafficBytes); err != nil {
+		id := ws.currentIdentity(r)
+		owner := ""
+		if !id.Admin {
+			owner = id.Username // 用户创建的客户端归自己
+		}
+		if err := ws.proxyManager.AddManagedClient(req.Name, req.Token, req.MaxTunnels, req.MaxTrafficBytes, owner); err != nil {
 			w.WriteHeader(http.StatusConflict)
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
 			return
@@ -783,6 +871,18 @@ func (ws *WebServer) v1HandleClientPath(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	name := parts[0]
+
+	// 用户隔离：非管理员只能操作自己拥有的客户端
+	if id := ws.currentIdentity(r); !id.Admin {
+		if ws.store != nil {
+			c, found, _ := ws.store.GetClient(name)
+			if !found || c.Owner != id.Username {
+				w.WriteHeader(http.StatusForbidden)
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "无权访问该客户端"})
+				return
+			}
+		}
+	}
 
 	switch r.Method {
 	case http.MethodGet:
@@ -958,6 +1058,10 @@ func (ws *WebServer) v1HandleProxies(w http.ResponseWriter, r *http.Request) {
 		rows := make([]row, 0, len(proxies))
 		for _, p := range proxies {
 			active := runtime[p.Name]
+			// 用户隔离：非管理员只能看自己客户端的隧道
+			if !ws.canAccessClient(r, p.ClientName) {
+				continue
+			}
 			// 过滤：client_name
 			if qClient != "" && p.ClientName != qClient {
 				continue
@@ -1017,8 +1121,8 @@ func (ws *WebServer) v1HandleProxies(w http.ResponseWriter, r *http.Request) {
 		if req.LocalAddr == "" {
 			req.LocalAddr = "127.0.0.1"
 		}
-		// 校验客户端存在
-		if _, found, _ := ws.store.GetClient(req.ClientName); !found {
+		// 校验客户端存在 + 用户隔离
+		if !ws.canAccessClient(r, req.ClientName) {
 			w.WriteHeader(http.StatusNotFound)
 			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "客户端 [" + req.ClientName + "] 不存在"})
 			return
@@ -1077,6 +1181,16 @@ func (ws *WebServer) v1HandleProxyPath(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := parts[0]
+
+	// 用户隔离：非管理员只能操作自己客户端名下的隧道
+	if id := ws.currentIdentity(r); !id.Admin {
+		p, found, _ := ws.store.GetProxy(name)
+		if !found || !ws.canAccessClient(r, p.ClientName) {
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "无权访问该隧道"})
+			return
+		}
+	}
 
 	if len(parts) >= 2 {
 		// enable / disable
@@ -1219,4 +1333,197 @@ func (ws *WebServer) v1HandleProxyPath(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "method not allowed"})
 	}
+}
+
+// ==================== 用户体系 API（v0.6.0） ====================
+
+// GET  /api/v1/users → 用户列表（管理员）
+// POST /api/v1/users → 创建用户 {username, password, role?}（管理员）
+func (ws *WebServer) v1HandleUsers(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	id := ws.currentIdentity(r)
+	if !id.Admin {
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "仅管理员可管理用户"})
+		return
+	}
+	if ws.store == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "未启用 DB 模式（需配置 db_path）"})
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		users, err := ws.store.ListUsers()
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "users": users})
+	case http.MethodPost:
+		var req struct {
+			Username string `json:"username"`
+			Password string `json:"password"`
+			Role     string `json:"role"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Username == "" || req.Password == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "需要 username 与 password"})
+			return
+		}
+		if req.Role == "" {
+			req.Role = "user"
+		}
+		if req.Role != "user" && req.Role != "admin" {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "role 仅支持 user / admin"})
+			return
+		}
+		u, err := ws.store.CreateUser(req.Username, req.Password, req.Role)
+		if err != nil {
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "用户名已存在或创建失败: " + err.Error()})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "user": u})
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "method not allowed"})
+	}
+}
+
+// GET    /api/v1/users/{username}             → 用户详情（含 API token；管理员或本人）
+// DELETE /api/v1/users/{username}             → 删除用户（管理员）
+// POST   /api/v1/users/{username}/reset-token → 重置 API token（管理员或本人）
+// POST   /api/v1/users/{username}/password    → 修改密码（管理员或本人）
+// POST   /api/v1/users/{username}/disable|enable → 停用/启用（管理员）
+func (ws *WebServer) v1HandleUserPath(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1/users/")
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) == 0 || parts[0] == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "缺少用户名"})
+		return
+	}
+	username := parts[0]
+	id := ws.currentIdentity(r)
+	// 非管理员只能操作自己
+	if !id.Admin && id.Username != username {
+		w.WriteHeader(http.StatusForbidden)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "无权操作其他用户"})
+		return
+	}
+	if ws.store == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "未启用 DB 模式"})
+		return
+	}
+
+	// 子操作：reset-token / password / disable / enable
+	if len(parts) >= 2 {
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "method not allowed"})
+			return
+		}
+		switch parts[1] {
+		case "reset-token":
+			token, ok, err := ws.store.ResetUserToken(username)
+			if err != nil || !ok {
+				w.WriteHeader(http.StatusNotFound)
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "用户不存在"})
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "api_token": token})
+		case "password":
+			var req struct {
+				Password string `json:"password"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Password == "" {
+				w.WriteHeader(http.StatusBadRequest)
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "需要 password"})
+				return
+			}
+			if ok, err := ws.store.UpdateUserPassword(username, req.Password); err != nil || !ok {
+				w.WriteHeader(http.StatusNotFound)
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "用户不存在"})
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+		case "disable", "enable":
+			if !id.Admin {
+				w.WriteHeader(http.StatusForbidden)
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "仅管理员可停用/启用用户"})
+				return
+			}
+			status := "active"
+			if parts[1] == "disable" {
+				status = "disabled"
+			}
+			if ok, err := ws.store.SetUserStatus(username, status); err != nil || !ok {
+				w.WriteHeader(http.StatusNotFound)
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "用户不存在"})
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "仅支持 reset-token / password / disable / enable"})
+		}
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		u, found, err := ws.store.GetUser(username)
+		if err != nil || !found {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "用户不存在"})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "user": u})
+	case http.MethodDelete:
+		if !id.Admin {
+			w.WriteHeader(http.StatusForbidden)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "仅管理员可删除用户"})
+			return
+		}
+		if ok, err := ws.store.DeleteUser(username); err != nil || !ok {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "用户不存在"})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "method not allowed"})
+	}
+}
+
+// POST /api/v1/login → 用户密码登录，换取 API token（第三方对接更友好）
+func (ws *WebServer) v1HandleLogin(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if ws.store == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "未启用 DB 模式"})
+		return
+	}
+	var req struct {
+		Username string `json:"username"`
+		Password string `json:"password"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Username == "" || req.Password == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "需要 username 与 password"})
+		return
+	}
+	u, ok := ws.store.VerifyUserPassword(req.Username, req.Password)
+	if !ok {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "用户名或密码错误"})
+		return
+	}
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "username": u.Username, "role": u.Role, "api_token": u.APIToken})
 }

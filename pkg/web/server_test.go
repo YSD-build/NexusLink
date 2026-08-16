@@ -60,7 +60,7 @@ func mockClientsTraffic() []ClientTrafficInfo {
 	}
 }
 
-func (mockPM) AddManagedClient(name, token string, maxTunnels int, maxTrafficBytes int64) error {
+func (mockPM) AddManagedClient(name, token string, maxTunnels int, maxTrafficBytes int64, owner string) error {
 	return nil
 }
 
@@ -885,5 +885,147 @@ func TestV1ProxyListFilter(t *testing.T) {
 	}
 	if names := getNames("/api/v1/proxies?q=db"); len(names) != 1 || names[0] != "db" {
 		t.Fatalf("q 模糊搜索应 1 条 db，got %v", names)
+	}
+}
+
+// ==================== 用户体系测试（v0.6.0） ====================
+
+// 带用户系统的测试 server
+func newUserTestServer(t *testing.T) (*httptest.Server, *store.Store) {
+	t.Helper()
+	st, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	if _, err := st.CreateUser("alice", "pass123", "user"); err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	// 归属 mock：alice-client 属于 alice，other-client 属于他人
+	pm := &ownerMockPM{}
+	ws := NewWebServer(&WebConfig{AdminPassword: "admin123", APIKeys: []string{"admin-key"}, Store: st}, pm)
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/users", ws.apiKeyMiddleware(ws.v1HandleUsers))
+	mux.HandleFunc("/api/v1/users/", ws.apiKeyMiddleware(ws.v1HandleUserPath))
+	mux.HandleFunc("/api/v1/login", ws.v1HandleLogin)
+	mux.HandleFunc("/api/v1/clients", ws.apiKeyMiddleware(ws.v1HandleClients))
+	mux.HandleFunc("/api/v1/clients/", ws.apiKeyMiddleware(ws.v1HandleClientPath))
+	return httptest.NewServer(mux), st
+}
+
+// 管理员创建用户 → 用户密码登录 → 拿 token 访问
+func TestV1UserFlow(t *testing.T) {
+	srv, st := newUserTestServer(t)
+	defer srv.Close()
+	defer st.Close()
+
+	admin := func(req *http.Request) *http.Request {
+		req.Header.Set("X-API-Key", "admin-key")
+		req.Header.Set("Content-Type", "application/json")
+		return req
+	}
+
+	// 管理员创建用户 bob
+	req, _ := http.NewRequest("POST", srv.URL+"/api/v1/users",
+		strings.NewReader(`{"username":"bob","password":"bobpass","role":"user"}`))
+	resp, _ := http.DefaultClient.Do(admin(req))
+	var created struct {
+		Success bool `json:"success"`
+		User    struct {
+			Username string `json:"username"`
+			APIToken string `json:"api_token"`
+		} `json:"user"`
+	}
+	json.NewDecoder(resp.Body).Decode(&created)
+	resp.Body.Close()
+	if !created.Success || created.User.Username != "bob" || created.User.APIToken == "" {
+		t.Fatalf("创建用户失败: %+v", created)
+	}
+
+	// bob 密码登录
+	login, _ := http.NewRequest("POST", srv.URL+"/api/v1/login",
+		strings.NewReader(`{"username":"bob","password":"bobpass"}`))
+	lresp, _ := http.DefaultClient.Do(login)
+	var lg struct {
+		Success  bool   `json:"success"`
+		Username string `json:"username"`
+		APIToken string `json:"api_token"`
+	}
+	json.NewDecoder(lresp.Body).Decode(&lg)
+	lresp.Body.Close()
+	if !lg.Success || lg.Username != "bob" {
+		t.Fatalf("登录失败: %+v", lg)
+	}
+
+	// bob token 可用
+	withToken := func(req *http.Request) *http.Request {
+		req.Header.Set("X-API-Key", lg.APIToken)
+		return req
+	}
+	creq, _ := http.NewRequest("GET", srv.URL+"/api/v1/clients", nil)
+	cresp, _ := http.DefaultClient.Do(withToken(creq))
+	var cl struct {
+		Success bool `json:"success"`
+	}
+	json.NewDecoder(cresp.Body).Decode(&cl)
+	cresp.Body.Close()
+	if !cl.Success {
+		t.Fatal("用户 token 应可访问 /api/v1/clients")
+	}
+}
+
+// 用户隔离：普通用户不能创建用户 / 不能访问他人客户端
+func TestV1UserIsolation(t *testing.T) {
+	srv, st := newUserTestServer(t)
+	defer srv.Close()
+	defer st.Close()
+
+	// alice 创建客户端（归属 alice）
+	if err := st.AddClientWithOwner("alice-client", "tok_a", 3, 0, "alice"); err != nil {
+		t.Fatal(err)
+	}
+
+	// alice 密码登录
+	login, _ := http.NewRequest("POST", srv.URL+"/api/v1/login",
+		strings.NewReader(`{"username":"alice","password":"pass123"}`))
+	lresp, _ := http.DefaultClient.Do(login)
+	var lg struct {
+		APIToken string `json:"api_token"`
+	}
+	json.NewDecoder(lresp.Body).Decode(&lg)
+	lresp.Body.Close()
+
+	// alice 不能创建用户（403）
+	ureq, _ := http.NewRequest("POST", srv.URL+"/api/v1/users",
+		strings.NewReader(`{"username":"x","password":"y"}`))
+	ureq.Header.Set("X-API-Key", lg.APIToken)
+	uresp, _ := http.DefaultClient.Do(ureq)
+	if uresp.StatusCode != http.StatusForbidden {
+		t.Fatalf("普通用户创建用户应 403，得到 %d", uresp.StatusCode)
+	}
+	uresp.Body.Close()
+
+	// alice 能看到自己的客户端
+	creq, _ := http.NewRequest("GET", srv.URL+"/api/v1/clients", nil)
+	creq.Header.Set("X-API-Key", lg.APIToken)
+	cresp, _ := http.DefaultClient.Do(creq)
+	var cl struct {
+		Clients []struct {
+			Name string `json:"name"`
+		} `json:"clients"`
+	}
+	json.NewDecoder(cresp.Body).Decode(&cl)
+	cresp.Body.Close()
+	if len(cl.Clients) != 1 || cl.Clients[0].Name != "alice-client" {
+		t.Fatalf("alice 应只看到自己的客户端，got %+v", cl.Clients)
+	}
+}
+
+// ownerMockPM 带归属数据的 mock：ListClientsTraffic 返回属于 alice 与他人的客户端
+type ownerMockPM struct{ mockPM }
+
+func (m *ownerMockPM) ListClientsTraffic() []ClientTrafficInfo {
+	return []ClientTrafficInfo{
+		{Name: "alice-client", Connected: true},
+		{Name: "other-client", Connected: false},
 	}
 }

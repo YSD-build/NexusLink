@@ -8,7 +8,10 @@
 package store
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"fmt"
 	"sync"
 	"time"
@@ -32,6 +35,7 @@ type Client struct {
 	BytesIn         int64     `json:"bytes_in"`
 	BytesOut        int64     `json:"bytes_out"`
 	Status          string    `json:"status"` // active | disabled
+	Owner           string    `json:"owner"`  // 所属用户（空=管理员/全局）
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }
@@ -76,6 +80,18 @@ func (s *Store) initSchema() error {
 			bytes_in INTEGER NOT NULL DEFAULT 0,
 			bytes_out INTEGER NOT NULL DEFAULT 0,
 			status TEXT NOT NULL DEFAULT 'active',
+			owner TEXT NOT NULL DEFAULT '',
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS users (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			username TEXT NOT NULL UNIQUE,
+			password_hash TEXT NOT NULL,
+			password_salt TEXT NOT NULL,
+			role TEXT NOT NULL DEFAULT 'user',
+			api_token TEXT NOT NULL UNIQUE,
+			status TEXT NOT NULL DEFAULT 'active',
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		)`,
@@ -106,16 +122,66 @@ func (s *Store) initSchema() error {
 			return fmt.Errorf("init schema: %w", err)
 		}
 	}
+	// 迁移：老库 clients 表补 owner 列（v0.6.0 用户体系）
+	if err := s.migrate(); err != nil {
+		return err
+	}
+	return nil
+}
+
+// migrate 兼容老库：给 clients 表补 owner 列（若缺失）
+func (s *Store) migrate() error {
+	rows, err := s.db.Query(`PRAGMA table_info(clients)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	hasOwner := false
+	for rows.Next() {
+		var cid int
+		var name, ctype string
+		var notnull, pk int
+		var dflt any
+		if err := rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == "owner" {
+			hasOwner = true
+		}
+	}
+	if !hasOwner {
+		if _, err := s.db.Exec(`ALTER TABLE clients ADD COLUMN owner TEXT NOT NULL DEFAULT ''`); err != nil {
+			return fmt.Errorf("migrate clients.owner: %w", err)
+		}
+	}
 	return nil
 }
 
 func now() string { return time.Now().Format(time.RFC3339) }
 
+// hashPassword 计算密码哈希（sha256(salt + password)）
+func hashPassword(password, salt string) string {
+	h := sha256.Sum256([]byte(salt + password))
+	return hex.EncodeToString(h[:])
+}
+
+// randomHex 生成 n 字节的随机十六进制串（API token / salt）
+func randomHex(n int) string {
+	b := make([]byte, n)
+	if _, err := rand.Read(b); err != nil {
+		// 兜底（几乎不可能失败）
+		for i := range b {
+			b[i] = byte(i + 1)
+		}
+	}
+	return hex.EncodeToString(b)
+}
+
 // ==================== Clients ====================
 
 // ListClients 列出所有客户端
 func (s *Store) ListClients() ([]Client, error) {
-	rows, err := s.db.Query(`SELECT id,name,token,max_tunnels,max_traffic_bytes,bytes_in,bytes_out,status,created_at,updated_at FROM clients ORDER BY id`)
+	rows, err := s.db.Query(`SELECT id,name,token,max_tunnels,max_traffic_bytes,bytes_in,bytes_out,status,owner,created_at,updated_at FROM clients ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -125,7 +191,29 @@ func (s *Store) ListClients() ([]Client, error) {
 		var c Client
 		var created, updated string
 		if err := rows.Scan(&c.ID, &c.Name, &c.Token, &c.MaxTunnels, &c.MaxTrafficBytes,
-			&c.BytesIn, &c.BytesOut, &c.Status, &created, &updated); err != nil {
+			&c.BytesIn, &c.BytesOut, &c.Status, &c.Owner, &created, &updated); err != nil {
+			return nil, err
+		}
+		c.CreatedAt, _ = time.Parse(time.RFC3339, created)
+		c.UpdatedAt, _ = time.Parse(time.RFC3339, updated)
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// ListClientsByOwner 列出指定用户拥有的客户端（用户隔离）
+func (s *Store) ListClientsByOwner(owner string) ([]Client, error) {
+	rows, err := s.db.Query(`SELECT id,name,token,max_tunnels,max_traffic_bytes,bytes_in,bytes_out,status,owner,created_at,updated_at FROM clients WHERE owner=? ORDER BY id`, owner)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Client
+	for rows.Next() {
+		var c Client
+		var created, updated string
+		if err := rows.Scan(&c.ID, &c.Name, &c.Token, &c.MaxTunnels, &c.MaxTrafficBytes,
+			&c.BytesIn, &c.BytesOut, &c.Status, &c.Owner, &created, &updated); err != nil {
 			return nil, err
 		}
 		c.CreatedAt, _ = time.Parse(time.RFC3339, created)
@@ -139,8 +227,8 @@ func (s *Store) ListClients() ([]Client, error) {
 func (s *Store) GetClient(name string) (Client, bool, error) {
 	var c Client
 	var created, updated string
-	err := s.db.QueryRow(`SELECT id,name,token,max_tunnels,max_traffic_bytes,bytes_in,bytes_out,status,created_at,updated_at FROM clients WHERE name=?`, name).
-		Scan(&c.ID, &c.Name, &c.Token, &c.MaxTunnels, &c.MaxTrafficBytes, &c.BytesIn, &c.BytesOut, &c.Status, &created, &updated)
+	err := s.db.QueryRow(`SELECT id,name,token,max_tunnels,max_traffic_bytes,bytes_in,bytes_out,status,owner,created_at,updated_at FROM clients WHERE name=?`, name).
+		Scan(&c.ID, &c.Name, &c.Token, &c.MaxTunnels, &c.MaxTrafficBytes, &c.BytesIn, &c.BytesOut, &c.Status, &c.Owner, &created, &updated)
 	if err == sql.ErrNoRows {
 		return Client{}, false, nil
 	}
@@ -156,8 +244,8 @@ func (s *Store) GetClient(name string) (Client, bool, error) {
 func (s *Store) GetClientByToken(token string) (Client, bool, error) {
 	var c Client
 	var created, updated string
-	err := s.db.QueryRow(`SELECT id,name,token,max_tunnels,max_traffic_bytes,bytes_in,bytes_out,status,created_at,updated_at FROM clients WHERE token=? AND status='active'`, token).
-		Scan(&c.ID, &c.Name, &c.Token, &c.MaxTunnels, &c.MaxTrafficBytes, &c.BytesIn, &c.BytesOut, &c.Status, &created, &updated)
+	err := s.db.QueryRow(`SELECT id,name,token,max_tunnels,max_traffic_bytes,bytes_in,bytes_out,status,owner,created_at,updated_at FROM clients WHERE token=? AND status='active'`, token).
+		Scan(&c.ID, &c.Name, &c.Token, &c.MaxTunnels, &c.MaxTrafficBytes, &c.BytesIn, &c.BytesOut, &c.Status, &c.Owner, &created, &updated)
 	if err == sql.ErrNoRows {
 		return Client{}, false, nil
 	}
@@ -169,12 +257,17 @@ func (s *Store) GetClientByToken(token string) (Client, bool, error) {
 	return c, true, nil
 }
 
-// AddClient 新增客户端
+// AddClient 新增客户端（管理员/全局，无归属）
 func (s *Store) AddClient(name, token string, maxTunnels int, maxTrafficBytes int64) error {
+	return s.AddClientWithOwner(name, token, maxTunnels, maxTrafficBytes, "")
+}
+
+// AddClientWithOwner 新增客户端并指定所属用户（用户隔离）
+func (s *Store) AddClientWithOwner(name, token string, maxTunnels int, maxTrafficBytes int64, owner string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	_, err := s.db.Exec(`INSERT INTO clients (name,token,max_tunnels,max_traffic_bytes,status,created_at,updated_at) VALUES (?,?,?,?,'active',?,?)`,
-		name, token, maxTunnels, maxTrafficBytes, now(), now())
+	_, err := s.db.Exec(`INSERT INTO clients (name,token,max_tunnels,max_traffic_bytes,status,owner,created_at,updated_at) VALUES (?,?,?,?,'active',?,?,?)`,
+		name, token, maxTunnels, maxTrafficBytes, owner, now(), now())
 	return err
 }
 
@@ -395,6 +488,155 @@ func scanProxies(rows *sql.Rows) ([]Proxy, error) {
 		out = append(out, p)
 	}
 	return out, rows.Err()
+}
+
+// ==================== Users（用户体系，v0.6.0） ====================
+
+// User 用户账号（商务多租户 / 个人自用）
+type User struct {
+	ID           int64  `json:"id"`
+	Username     string `json:"username"`
+	PasswordHash string `json:"-"`
+	PasswordSalt string `json:"-"`
+	Role         string `json:"role"`      // admin / user
+	APIToken     string `json:"api_token"` // 每用户 API 凭据（X-API-Key / Bearer）
+	Status       string `json:"status"`    // active / disabled
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
+}
+
+// CreateUser 创建用户（自动生成 API token）
+func (s *Store) CreateUser(username, password, role string) (User, error) {
+	salt := randomHex(8)
+	hash := hashPassword(password, salt)
+	token := randomHex(24)
+	u := User{
+		Username:     username,
+		PasswordHash: hash,
+		PasswordSalt: salt,
+		Role:         role,
+		APIToken:     token,
+		Status:       "active",
+		CreatedAt:    now(),
+		UpdatedAt:    now(),
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := s.db.Exec(`INSERT INTO users (username,password_hash,password_salt,role,api_token,status,created_at,updated_at)
+		VALUES (?,?,?,?,?,?,?,?)`,
+		u.Username, u.PasswordHash, u.PasswordSalt, u.Role, u.APIToken, u.Status, u.CreatedAt, u.UpdatedAt); err != nil {
+		return User{}, err
+	}
+	return u, nil
+}
+
+// ListUsers 列出所有用户
+func (s *Store) ListUsers() ([]User, error) {
+	rows, err := s.db.Query(`SELECT id,username,password_hash,password_salt,role,api_token,status,created_at,updated_at FROM users ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []User
+	for rows.Next() {
+		var u User
+		if err := rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.PasswordSalt, &u.Role, &u.APIToken, &u.Status, &u.CreatedAt, &u.UpdatedAt); err != nil {
+			return nil, err
+		}
+		out = append(out, u)
+	}
+	return out, rows.Err()
+}
+
+// GetUser 按用户名查询用户
+func (s *Store) GetUser(username string) (User, bool, error) {
+	var u User
+	err := s.db.QueryRow(`SELECT id,username,password_hash,password_salt,role,api_token,status,created_at,updated_at FROM users WHERE username=?`, username).
+		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.PasswordSalt, &u.Role, &u.APIToken, &u.Status, &u.CreatedAt, &u.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return User{}, false, nil
+	}
+	if err != nil {
+		return User{}, false, err
+	}
+	return u, true, nil
+}
+
+// GetUserByToken 按 API token 查询用户（用户鉴权用）
+func (s *Store) GetUserByToken(token string) (User, bool, error) {
+	var u User
+	err := s.db.QueryRow(`SELECT id,username,password_hash,password_salt,role,api_token,status,created_at,updated_at FROM users WHERE api_token=? AND status='active'`, token).
+		Scan(&u.ID, &u.Username, &u.PasswordHash, &u.PasswordSalt, &u.Role, &u.APIToken, &u.Status, &u.CreatedAt, &u.UpdatedAt)
+	if err == sql.ErrNoRows {
+		return User{}, false, nil
+	}
+	if err != nil {
+		return User{}, false, err
+	}
+	return u, true, nil
+}
+
+// VerifyUserPassword 校验用户密码（登录用）
+func (s *Store) VerifyUserPassword(username, password string) (User, bool) {
+	u, ok, err := s.GetUser(username)
+	if err != nil || !ok {
+		return User{}, false
+	}
+	if u.Status != "active" {
+		return User{}, false
+	}
+	return u, hashPassword(password, u.PasswordSalt) == u.PasswordHash
+}
+
+// ResetUserToken 重置用户 API token（返回新 token）
+func (s *Store) ResetUserToken(username string) (string, bool, error) {
+	token := randomHex(24)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, err := s.db.Exec(`UPDATE users SET api_token=?, updated_at=? WHERE username=?`, token, now(), username)
+	if err != nil {
+		return "", false, err
+	}
+	n, _ := res.RowsAffected()
+	return token, n > 0, nil
+}
+
+// UpdateUserPassword 修改用户密码
+func (s *Store) UpdateUserPassword(username, password string) (bool, error) {
+	salt := randomHex(8)
+	hash := hashPassword(password, salt)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, err := s.db.Exec(`UPDATE users SET password_hash=?, password_salt=?, updated_at=? WHERE username=?`, hash, salt, now(), username)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// DeleteUser 删除用户
+func (s *Store) DeleteUser(username string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, err := s.db.Exec(`DELETE FROM users WHERE username=?`, username)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// SetUserStatus 启用/停用用户
+func (s *Store) SetUserStatus(username, status string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, err := s.db.Exec(`UPDATE users SET status=?, updated_at=? WHERE username=?`, status, now(), username)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }
 
 // ==================== Settings ====================
