@@ -76,13 +76,28 @@ class NexusLinkClient:
             "local_port": local_port, "client_name": client_name,
         })
 
-    def list_proxies(self):
-        """列出所有隧道（DB 定义 + 运行时 active 状态）"""
-        return self._req("GET", "/api/v1/proxies").get("proxies", [])
+    def list_proxies(self, client_name=None, proxy_type=None, enabled=None, active=None, q=None):
+        """列出隧道，支持过滤（client_name / type / enabled / active / q 名称搜索）"""
+        params = {}
+        if client_name:
+            params["client_name"] = client_name
+        if proxy_type:
+            params["type"] = proxy_type
+        if enabled is not None:
+            params["enabled"] = str(enabled).lower()
+        if active is not None:
+            params["active"] = str(active).lower()
+        if q:
+            params["q"] = q
+        return self._req("GET", "/api/v1/proxies", params=params).get("proxies", [])
 
     def get_proxy(self, name):
         """查询单个隧道详情"""
         return self._req("GET", f"/api/v1/proxies/{name}").get("proxy")
+
+    def update_proxy(self, name, **patch):
+        """编辑隧道（部分更新）：update_proxy('web', remote_port=8088, enabled=False)"""
+        return self._req("PATCH", f"/api/v1/proxies/{name}", json=patch).get("proxy")
 
     def delete_proxy(self, name):
         """删除隧道（DB + 运行时下线）"""

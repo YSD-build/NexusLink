@@ -96,9 +96,18 @@ class NexusLinkClient
             'local_addr' => $localAddr, 'client_name' => $clientName,
         ]);
     }
-    public function listProxies()
+    public function listProxies($filters = [])
     {
-        return $this->request('GET', '/api/v1/proxies');
+        $q = http_build_query($filters);
+        return $this->request('GET', '/api/v1/proxies' . ($q ? '?' . $q : ''));
+    }
+    public function getProxy($name)
+    {
+        return $this->request('GET', '/api/v1/proxies/' . rawurlencode($name));
+    }
+    public function updateProxy($name, array $patch)
+    {
+        return $this->request('PATCH', '/api/v1/proxies/' . rawurlencode($name), $patch);
     }
     public function deleteProxy($name)
     {
@@ -161,6 +170,12 @@ if (PHP_SAPI === 'cli' && isset($argv[1]) && $argv[1] === 'demo') {
                 break;
             case 'list-proxies':
                 print_r($api->listProxies());
+                break;
+            case 'proxy':
+                print_r($api->getProxy($rest[0]));
+                break;
+            case 'update-proxy': // name field value
+                print_r($api->updateProxy($rest[0], [$rest[1] => $rest[2]]));
                 break;
             case 'delete-proxy':
                 print_r($api->deleteProxy($rest[0]));

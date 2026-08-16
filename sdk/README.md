@@ -132,6 +132,8 @@ chmod +x sdk/curl/nexuslink.sh
 | 删除客户端 | `DeleteClient(name)` | `delete_client(name)` | `deleteClient(name)` | `deleteClient(name)` | `deleteClient(name)` | `nexuslink_delete_client(...)` | `delete-client name` |
 | **创建隧道** | `CreateProxy(...)` | `create_proxy(...)` | `createProxy(...)` | `createProxy(...)` | `createProxy(...)` | `nexuslink_create_proxy(...)` | `create-proxy name type remote local localaddr client` |
 | **隧道列表** | `ListProxies()` | `list_proxies()` | `listProxies()` | `listProxies()` | `listProxies()` | `nexuslink_list_proxies(...)` | `list-proxies` |
+| **查看隧道** | `GetProxy(name)` | `get_proxy(name)` | `getProxy(name)` | `getProxy(name)` | `getProxy(name)` | `nexuslink_get_proxy(...)` | `proxy name` |
+| **编辑隧道** | `UpdateProxy(name,patch)` | `update_proxy(name,**patch)` | `updateProxy(name,json)` | `updateProxy(name,patch)` | `updateProxy(name,array)` | `nexuslink_update_proxy(...)` | `update-proxy name field value` |
 | **删除隧道** | `DeleteProxy(name)` | `delete_proxy(name)` | `deleteProxy(name)` | `deleteProxy(name)` | `deleteProxy(name)` | `nexuslink_delete_proxy(...)` | `delete-proxy name` |
 | **停用隧道** | `DisableProxy(name)` | `disable_proxy(name)` | `disableProxy(name)` | `disableProxy(name)` | `disableProxy(name)` | `nexuslink_disable_proxy(...)` | `disable-proxy name` |
 | 下线隧道 | `CloseProxy(name)` | `close_proxy(name)` | `closeProxy(name)` | `closeProxy(name)` | `closeProxy(name)` | `nexuslink_close_proxy(...)` | `close-proxy name` |
@@ -149,7 +151,28 @@ chmod +x sdk/curl/nexuslink.sh
 1. `POST /api/v1/clients` 创建客户（分配 token）
 2. `POST /api/v1/proxies` 为该客户创建隧道（服务端 DB 保存）
 3. 客户端的 `client.yaml` 只需 `server_ip / server_port / token`，连接后自动从服务端同步隧道并注册
-4. 平台随时 `GET /api/v1/proxies` 查看隧道状态（enabled / active），`disable` / `delete` 管控
+4. 平台随时查看/编辑/启停/删除隧道（完整 CRUD）：
+
+```
+创建  POST   /api/v1/proxies                    {name,type,remote_port,local_addr,local_port,client_name}
+查看  GET    /api/v1/proxies/{name}             单条
+列表  GET    /api/v1/proxies                    全部（支持过滤）
+编辑  PATCH  /api/v1/proxies/{name}             {type?,remote_port?,local_addr?,local_port?,enabled?}
+删除  DELETE /api/v1/proxies/{name}             删除
+启停  POST   /api/v1/proxies/{name}/enable|disable
+下线  POST   /api/v1/proxies/close              {name}（不删定义）
+```
+
+**列表过滤**（部分隧道查询）：
+
+```bash
+GET /api/v1/proxies?client_name=customer-a   # 按客户端
+GET /api/v1/proxies?type=udp                 # 按协议
+GET /api/v1/proxies?enabled=true             # 按启用状态（true/false）
+GET /api/v1/proxies?active=true              # 按运行状态（true/false）
+GET /api/v1/proxies?q=web                    # 名称模糊搜索
+# 可组合：?client_name=a&type=tcp&enabled=true
+```
 
 客户端也支持**命令行 / 环境变量**直接指定接入信息（无需 yaml）：
 

@@ -339,6 +339,19 @@ func (s *Store) DeleteProxy(name string) (bool, error) {
 	return n > 0, nil
 }
 
+// UpdateProxy 更新隧道（按 name 更新可编辑字段；name 本身不可改）
+func (s *Store) UpdateProxy(name, typ string, remotePort, localPort int, localAddr string, enabled bool) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, err := s.db.Exec(`UPDATE proxies SET type=?, remote_port=?, local_addr=?, local_port=?, enabled=? WHERE name=?`,
+		typ, remotePort, localAddr, localPort, boolInt(enabled), name)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
 // SetProxyEnabled 启用/停用隧道
 func (s *Store) SetProxyEnabled(name string, enabled bool) (bool, error) {
 	s.mu.Lock()

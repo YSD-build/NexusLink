@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -152,14 +153,76 @@ func (c *Client) CreateProxy(name, typ string, remotePort, localPort int, localA
 }
 
 // ListProxies 列出所有隧道（DB 定义 + 运行时状态）
+// 支持过滤：ListProxiesFilter{ClientName, Type, Enabled, Active, Search}
 func (c *Client) ListProxies() ([]ProxyInfo, error) {
+	return c.ListProxiesFilter(ProxyFilter{})
+}
+
+// ProxyFilter 隧道列表过滤条件
+type ProxyFilter struct {
+	ClientName string
+	Type       string
+	Enabled    *bool
+	Active     *bool
+	Search     string
+}
+
+// ListProxiesFilter 按条件列出部分隧道
+func (c *Client) ListProxiesFilter(f ProxyFilter) ([]ProxyInfo, error) {
+	q := []string{}
+	if f.ClientName != "" {
+		q = append(q, "client_name="+f.ClientName)
+	}
+	if f.Type != "" {
+		q = append(q, "type="+f.Type)
+	}
+	if f.Enabled != nil {
+		q = append(q, "enabled="+fmt.Sprint(*f.Enabled))
+	}
+	if f.Active != nil {
+		q = append(q, "active="+fmt.Sprint(*f.Active))
+	}
+	if f.Search != "" {
+		q = append(q, "q="+f.Search)
+	}
+	path := "/api/v1/proxies"
+	if len(q) > 0 {
+		path += "?" + strings.Join(q, "&")
+	}
 	var out struct {
 		Proxies []ProxyInfo `json:"proxies"`
 	}
-	if err := c.request("GET", "/api/v1/proxies", nil, &out); err != nil {
+	if err := c.request("GET", path, nil, &out); err != nil {
 		return nil, err
 	}
 	return out.Proxies, nil
+}
+
+// GetProxy 查看单个隧道详情
+func (c *Client) GetProxy(name string) (ProxyInfo, error) {
+	var out struct {
+		Proxy ProxyInfo `json:"proxy"`
+	}
+	err := c.request("GET", "/api/v1/proxies/"+name, nil, &out)
+	return out.Proxy, err
+}
+
+// UpdateProxy 编辑隧道（部分更新：只更新非 nil 字段；name 不可改）
+func (c *Client) UpdateProxy(name string, patch ProxyPatch) (ProxyInfo, error) {
+	var out struct {
+		Proxy ProxyInfo `json:"proxy"`
+	}
+	err := c.request("PATCH", "/api/v1/proxies/"+name, patch, &out)
+	return out.Proxy, err
+}
+
+// ProxyPatch 隧道编辑字段（nil 表示不修改）
+type ProxyPatch struct {
+	Type       *string `json:"type,omitempty"`
+	RemotePort *int    `json:"remote_port,omitempty"`
+	LocalAddr  *string `json:"local_addr,omitempty"`
+	LocalPort  *int    `json:"local_port,omitempty"`
+	Enabled    *bool   `json:"enabled,omitempty"`
 }
 
 // DeleteProxy 删除隧道（DB + 运行时下线）

@@ -640,6 +640,9 @@ func newV1ProxyTestServer(t *testing.T) (*httptest.Server, *store.Store) {
 	if err := st.AddClient("customer-a", "token_a", 3, 0); err != nil {
 		t.Fatalf("add client: %v", err)
 	}
+	if err := st.AddClient("customer-b", "token_b", 3, 0); err != nil {
+		t.Fatalf("add client b: %v", err)
+	}
 	ws := NewWebServer(&WebConfig{AdminPassword: "admin123", APIKeys: []string{"test-key"}, Store: st}, mockPM{})
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/v1/proxies", ws.apiKeyMiddleware(ws.v1HandleProxies))
@@ -764,5 +767,123 @@ func TestV1ProxyQuota(t *testing.T) {
 	}
 	if code := create("d", 8104); code != http.StatusConflict {
 		t.Fatalf("第 4 条应 409（配额 3），得到 %d", code)
+	}
+}
+
+// 编辑隧道：PATCH 部分更新（改端口/启停），其余字段保持
+func TestV1ProxyUpdate(t *testing.T) {
+	srv, st := newV1ProxyTestServer(t)
+	defer srv.Close()
+	defer st.Close()
+
+	key := func(req *http.Request) *http.Request {
+		req.Header.Set("X-API-Key", "test-key")
+		req.Header.Set("Content-Type", "application/json")
+		return req
+	}
+	// 创建
+	req, _ := http.NewRequest("POST", srv.URL+"/api/v1/proxies",
+		strings.NewReader(`{"name":"web","type":"tcp","remote_port":8099,"local_addr":"127.0.0.1","local_port":9000,"client_name":"customer-a"}`))
+	resp, _ := http.DefaultClient.Do(key(req))
+	resp.Body.Close()
+
+	// PATCH：只改 remote_port 与 enabled=false
+	req2, _ := http.NewRequest("PATCH", srv.URL+"/api/v1/proxies/web",
+		strings.NewReader(`{"remote_port":8088,"enabled":false}`))
+	resp2, _ := http.DefaultClient.Do(key(req2))
+	var d struct {
+		Success bool `json:"success"`
+		Proxy   struct {
+			Name       string `json:"name"`
+			RemotePort int    `json:"remote_port"`
+			LocalPort  int    `json:"local_port"`
+			Type       string `json:"type"`
+			Enabled    bool   `json:"enabled"`
+		} `json:"proxy"`
+	}
+	json.NewDecoder(resp2.Body).Decode(&d)
+	resp2.Body.Close()
+	if !d.Success {
+		t.Fatalf("PATCH 应 success，got %+v", d)
+	}
+	if d.Proxy.RemotePort != 8088 || d.Proxy.Enabled || d.Proxy.Type != "tcp" || d.Proxy.LocalPort != 9000 {
+		t.Fatalf("编辑应只更新 remote_port/enabled，got %+v", d.Proxy)
+	}
+
+	// 不存在隧道 404
+	req3, _ := http.NewRequest("PATCH", srv.URL+"/api/v1/proxies/nope",
+		strings.NewReader(`{"remote_port":1}`))
+	resp3, _ := http.DefaultClient.Do(key(req3))
+	if resp3.StatusCode != http.StatusNotFound {
+		t.Fatalf("编辑不存在隧道应 404，得到 %d", resp3.StatusCode)
+	}
+	resp3.Body.Close()
+}
+
+// 列表过滤：client_name / type / enabled / active / q
+func TestV1ProxyListFilter(t *testing.T) {
+	srv, st := newV1ProxyTestServer(t)
+	defer srv.Close()
+	defer st.Close()
+
+	key := func(req *http.Request) *http.Request {
+		req.Header.Set("X-API-Key", "test-key")
+		req.Header.Set("Content-Type", "application/json")
+		return req
+	}
+	// 创建 3 条
+	for _, c := range []struct {
+		name, typ string
+		port      int
+		client    string
+	}{
+		{"web", "tcp", 8101, "customer-a"},
+		{"api", "udp", 8102, "customer-a"},
+		{"db", "tcp", 8103, "customer-b"},
+	} {
+		req, _ := http.NewRequest("POST", srv.URL+"/api/v1/proxies",
+			strings.NewReader(`{"name":"`+c.name+`","type":"`+c.typ+`","remote_port":`+fmt.Sprint(c.port)+`,"local_addr":"127.0.0.1","local_port":9000,"client_name":"`+c.client+`"}`))
+		resp, _ := http.DefaultClient.Do(key(req))
+		resp.Body.Close()
+	}
+	// 停用 api
+	req, _ := http.NewRequest("POST", srv.URL+"/api/v1/proxies/api/disable", nil)
+	resp, _ := http.DefaultClient.Do(key(req))
+	resp.Body.Close()
+
+	getNames := func(path string) []string {
+		r, _ := http.NewRequest("GET", srv.URL+path, nil)
+		resp, err := http.DefaultClient.Do(key(r))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var d struct {
+			Proxies []struct {
+				Name string `json:"name"`
+			} `json:"proxies"`
+		}
+		json.NewDecoder(resp.Body).Decode(&d)
+		resp.Body.Close()
+		out := []string{}
+		for _, p := range d.Proxies {
+			out = append(out, p.Name)
+		}
+		return out
+	}
+
+	if names := getNames("/api/v1/proxies?client_name=customer-a"); len(names) != 2 || names[0] != "web" {
+		t.Fatalf("client_name 过滤应 2 条，got %v", names)
+	}
+	if names := getNames("/api/v1/proxies?type=udp"); len(names) != 1 || names[0] != "api" {
+		t.Fatalf("type 过滤应 1 条 api，got %v", names)
+	}
+	if names := getNames("/api/v1/proxies?enabled=true"); len(names) != 2 {
+		t.Fatalf("enabled=true 应 2 条，got %v", names)
+	}
+	if names := getNames("/api/v1/proxies?enabled=false"); len(names) != 1 || names[0] != "api" {
+		t.Fatalf("enabled=false 应 1 条 api，got %v", names)
+	}
+	if names := getNames("/api/v1/proxies?q=db"); len(names) != 1 || names[0] != "db" {
+		t.Fatalf("q 模糊搜索应 1 条 db，got %v", names)
 	}
 }

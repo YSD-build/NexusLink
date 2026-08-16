@@ -45,7 +45,29 @@ char *nexuslink_delete_client(nexuslink_client *c, const char *name);
 /* 查询客户端流量 */
 char *nexuslink_get_traffic(nexuslink_client *c, const char *name);
 
-/* 下线隧道 */
+/* ---------- 隧道管理（DB 驱动） ---------- */
+
+/* 创建隧道（name/type/remote_port/local_addr/local_port/client_name） */
+char *nexuslink_create_proxy(nexuslink_client *c, const char *name, const char *type,
+                             int remote_port, int local_port, const char *local_addr, const char *client_name);
+
+/* 列出所有隧道（DB 定义 + 运行时状态） */
+char *nexuslink_list_proxies(nexuslink_client *c);
+
+/* 查看单个隧道详情 */
+char *nexuslink_get_proxy(nexuslink_client *c, const char *name);
+
+/* 编辑隧道（部分更新，patch_json 如 {"remote_port":8088,"enabled":false}） */
+char *nexuslink_update_proxy(nexuslink_client *c, const char *name, const char *patch_json);
+
+/* 删除隧道（DB + 运行时下线） */
+char *nexuslink_delete_proxy(nexuslink_client *c, const char *name);
+
+/* 启用/停用隧道 */
+char *nexuslink_enable_proxy(nexuslink_client *c, const char *name);
+char *nexuslink_disable_proxy(nexuslink_client *c, const char *name);
+
+/* 下线隧道（不删除定义） */
 char *nexuslink_close_proxy(nexuslink_client *c, const char *name);
 
 /* 创建 API Key */

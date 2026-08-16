@@ -73,6 +73,9 @@ char *nexuslink_request(nexuslink_client *c, const char *method, const char *pat
     if (strcmp(method, "POST") == 0) {
         curl_easy_setopt(curl, CURLOPT_POST, 1L);
         if (body) curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
+    } else if (strcmp(method, "PATCH") == 0) {
+        curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "PATCH");
+        if (body) curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body);
     } else if (strcmp(method, "DELETE") == 0) {
         curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, "DELETE");
     } /* GET 默认 */
@@ -126,6 +129,58 @@ char *nexuslink_close_proxy(nexuslink_client *c, const char *name)
     char body[256];
     snprintf(body, sizeof(body), "{\"name\":\"%s\"}", name);
     return nexuslink_request(c, "POST", "/api/v1/proxies/close", body);
+}
+
+/* ---------- 隧道管理（DB 驱动） ---------- */
+
+char *nexuslink_create_proxy(nexuslink_client *c, const char *name, const char *type,
+                             int remote_port, int local_port, const char *local_addr, const char *client_name)
+{
+    char body[512];
+    snprintf(body, sizeof(body),
+             "{\"name\":\"%s\",\"type\":\"%s\",\"remote_port\":%d,\"local_addr\":\"%s\",\"local_port\":%d,\"client_name\":\"%s\"}",
+             name, type, remote_port, local_addr, local_port, client_name);
+    return nexuslink_request(c, "POST", "/api/v1/proxies", body);
+}
+
+char *nexuslink_list_proxies(nexuslink_client *c)
+{
+    return nexuslink_request(c, "GET", "/api/v1/proxies", NULL);
+}
+
+char *nexuslink_get_proxy(nexuslink_client *c, const char *name)
+{
+    char path[320];
+    snprintf(path, sizeof(path), "/api/v1/proxies/%s", name);
+    return nexuslink_request(c, "GET", path, NULL);
+}
+
+char *nexuslink_update_proxy(nexuslink_client *c, const char *name, const char *patch_json)
+{
+    char path[320];
+    snprintf(path, sizeof(path), "/api/v1/proxies/%s", name);
+    return nexuslink_request(c, "PATCH", path, patch_json);
+}
+
+char *nexuslink_delete_proxy(nexuslink_client *c, const char *name)
+{
+    char path[320];
+    snprintf(path, sizeof(path), "/api/v1/proxies/%s", name);
+    return nexuslink_request(c, "DELETE", path, NULL);
+}
+
+char *nexuslink_enable_proxy(nexuslink_client *c, const char *name)
+{
+    char path[320];
+    snprintf(path, sizeof(path), "/api/v1/proxies/%s/enable", name);
+    return nexuslink_request(c, "POST", path, NULL);
+}
+
+char *nexuslink_disable_proxy(nexuslink_client *c, const char *name)
+{
+    char path[320];
+    snprintf(path, sizeof(path), "/api/v1/proxies/%s/disable", name);
+    return nexuslink_request(c, "POST", path, NULL);
 }
 
 char *nexuslink_create_api_key(nexuslink_client *c, const char *key, const char *note)

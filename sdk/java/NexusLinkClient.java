@@ -37,6 +37,8 @@ public class NexusLinkClient {
                 .timeout(Duration.ofSeconds(15));
         if ("POST".equals(method)) {
             b = b.POST(body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body));
+        } else if ("PATCH".equals(method)) {
+            b = b.method("PATCH", body == null ? HttpRequest.BodyPublishers.noBody() : HttpRequest.BodyPublishers.ofString(body));
         } else if ("DELETE".equals(method)) {
             b = b.DELETE();
         } else {
@@ -77,7 +79,44 @@ public class NexusLinkClient {
 
     // ---------- 隧道管理 ----------
 
-    /** 下线隧道 */
+    /** 创建隧道（DB 持久化，客户端自动同步注册） */
+    public String createProxy(String name, String type, int remotePort, int localPort, String localAddr, String clientName) throws Exception {
+        return req("POST", "/api/v1/proxies",
+                String.format("{\"name\":\"%s\",\"type\":\"%s\",\"remote_port\":%d,\"local_addr\":\"%s\",\"local_port\":%d,\"client_name\":\"%s\"}",
+                        name, type, remotePort, localAddr, localPort, clientName));
+    }
+
+    /** 列出所有隧道（DB 定义 + 运行时状态） */
+    public String listProxies() throws Exception {
+        return req("GET", "/api/v1/proxies", null);
+    }
+
+    /** 查看单个隧道详情 */
+    public String getProxy(String name) throws Exception {
+        return req("GET", "/api/v1/proxies/" + name, null);
+    }
+
+    /** 编辑隧道（部分更新，如 {\"remote_port\":8088,\"enabled\":false}） */
+    public String updateProxy(String name, String patchJson) throws Exception {
+        return req("PATCH", "/api/v1/proxies/" + name, patchJson);
+    }
+
+    /** 删除隧道（DB + 运行时下线） */
+    public String deleteProxy(String name) throws Exception {
+        return req("DELETE", "/api/v1/proxies/" + name, null);
+    }
+
+    /** 启用隧道 */
+    public String enableProxy(String name) throws Exception {
+        return req("POST", "/api/v1/proxies/" + name + "/enable", null);
+    }
+
+    /** 停用隧道 */
+    public String disableProxy(String name) throws Exception {
+        return req("POST", "/api/v1/proxies/" + name + "/disable", null);
+    }
+
+    /** 下线隧道（不删除定义） */
     public String closeProxy(String name) throws Exception {
         return req("POST", "/api/v1/proxies/close", "{\"name\":\"" + name + "\"}");
     }

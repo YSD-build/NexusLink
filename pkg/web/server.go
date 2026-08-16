@@ -933,6 +933,13 @@ func (ws *WebServer) v1HandleProxies(w http.ResponseWriter, r *http.Request) {
 	}
 	switch r.Method {
 	case http.MethodGet:
+		// 过滤参数：?client_name=&type=&enabled=&active=&q=（名称模糊搜索）
+		qClient := r.URL.Query().Get("client_name")
+		qType := r.URL.Query().Get("type")
+		qEnabled := r.URL.Query().Get("enabled")
+		qActive := r.URL.Query().Get("active")
+		qSearch := r.URL.Query().Get("q")
+
 		proxies, err := ws.store.ListProxies()
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
@@ -950,7 +957,34 @@ func (ws *WebServer) v1HandleProxies(w http.ResponseWriter, r *http.Request) {
 		}
 		rows := make([]row, 0, len(proxies))
 		for _, p := range proxies {
-			rows = append(rows, row{Proxy: p, Active: runtime[p.Name]})
+			active := runtime[p.Name]
+			// 过滤：client_name
+			if qClient != "" && p.ClientName != qClient {
+				continue
+			}
+			// 过滤：type
+			if qType != "" && p.Type != qType {
+				continue
+			}
+			// 过滤：enabled
+			if qEnabled != "" {
+				want := qEnabled == "1" || qEnabled == "true"
+				if p.Enabled != want {
+					continue
+				}
+			}
+			// 过滤：active（运行时状态）
+			if qActive != "" {
+				want := qActive == "1" || qActive == "true"
+				if active != want {
+					continue
+				}
+			}
+			// 过滤：q 名称模糊搜索
+			if qSearch != "" && !strings.Contains(p.Name, qSearch) {
+				continue
+			}
+			rows = append(rows, row{Proxy: p, Active: active})
 		}
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "proxies": rows})
 	case http.MethodPost:
@@ -1094,6 +1128,75 @@ func (ws *WebServer) v1HandleProxyPath(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "proxy": p})
+	case http.MethodPatch:
+		// 编辑隧道（部分更新：只更新提供的字段）
+		p, found, err := ws.store.GetProxy(name)
+		if err != nil || !found {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "隧道不存在"})
+			return
+		}
+		var req struct {
+			Type       *string `json:"type"`
+			RemotePort *int    `json:"remote_port"`
+			LocalAddr  *string `json:"local_addr"`
+			LocalPort  *int    `json:"local_port"`
+			Enabled    *bool   `json:"enabled"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "JSON 解析失败"})
+			return
+		}
+		typ := p.Type
+		if req.Type != nil {
+			typ = *req.Type
+		}
+		remotePort := p.RemotePort
+		if req.RemotePort != nil {
+			remotePort = *req.RemotePort
+		}
+		localAddr := p.LocalAddr
+		if req.LocalAddr != nil {
+			localAddr = *req.LocalAddr
+		}
+		localPort := p.LocalPort
+		if req.LocalPort != nil {
+			localPort = *req.LocalPort
+		}
+		enabled := p.Enabled
+		if req.Enabled != nil {
+			enabled = *req.Enabled
+		}
+		if typ != "tcp" && typ != "udp" {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "type 仅支持 tcp / udp"})
+			return
+		}
+		if remotePort <= 0 || remotePort > 65535 {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "remote_port 需在 1-65535"})
+			return
+		}
+		if localAddr == "" {
+			localAddr = "127.0.0.1"
+		}
+		if ok, err := ws.store.UpdateProxy(name, typ, remotePort, localPort, localAddr, enabled); err != nil || !ok {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "更新失败"})
+			return
+		}
+		// 停用则下线运行中；更新后通知客户端重连
+		if !enabled {
+			ws.proxyManager.CloseProxy(name)
+		}
+		ws.proxyManager.NotifyClientSync(p.ClientName)
+		webhook.Send(ws.config.WebhookURL, "proxy_updated", map[string]any{
+			"name": name, "type": typ, "remote_port": remotePort,
+			"local_addr": localAddr, "local_port": localPort, "enabled": enabled, "client_name": p.ClientName,
+		})
+		updated, _, _ := ws.store.GetProxy(name)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "proxy": updated})
 	case http.MethodDelete:
 		p, found, err := ws.store.GetProxy(name)
 		if err != nil || !found {

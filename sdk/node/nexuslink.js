@@ -57,8 +57,21 @@ class NexusLinkClient {
       name, type, remote_port: remotePort, local_port: localPort, local_addr: localAddr, client_name: clientName,
     });
   }
-  listProxies() {
-    return this._req('GET', '/api/v1/proxies');
+  listProxies(filters = {}) {
+    // 过滤：{ client_name, type, enabled, active, q }
+    const qs = new URLSearchParams();
+    for (const [k, v] of Object.entries(filters)) {
+      if (v !== undefined && v !== null && v !== '') qs.set(k, v);
+    }
+    const q = qs.toString();
+    return this._req('GET', `/api/v1/proxies${q ? '?' + q : ''}`);
+  }
+  getProxy(name) {
+    return this._req('GET', `/api/v1/proxies/${encodeURIComponent(name)}`);
+  }
+  updateProxy(name, patch) {
+    // patch: { type?, remote_port?, local_addr?, local_port?, enabled? }
+    return this._req('PATCH', `/api/v1/proxies/${encodeURIComponent(name)}`, patch);
   }
   deleteProxy(name) {
     return this._req('DELETE', `/api/v1/proxies/${encodeURIComponent(name)}`);
@@ -92,7 +105,7 @@ if (require.main === module) {
   const [,, baseURL, apiKey, action, ...rest] = process.argv;
   if (!baseURL || !apiKey || !action) {
     console.log('用法: node nexuslink.js <baseURL> <apiKey> <action> [参数...]');
-    console.log('actions: create-client NAME TOKEN [max_tunnels] [max_traffic] | list-clients | traffic NAME | delete-client NAME | create-proxy NAME TYPE REMOTE_PORT LOCAL_PORT LOCAL_ADDR CLIENT | list-proxies | delete-proxy NAME | disable-proxy NAME | list-keys | create-key KEY [note]');
+    console.log('actions: create-client NAME TOKEN [max_tunnels] [max_traffic] | list-clients | traffic NAME | delete-client NAME | create-proxy NAME TYPE REMOTE_PORT LOCAL_PORT LOCAL_ADDR CLIENT | list-proxies | proxy NAME | update-proxy NAME FIELD VALUE | delete-proxy NAME | disable-proxy NAME | list-keys | create-key KEY [note]');
     process.exit(1);
   }
   const api = new NexusLinkClient(baseURL, apiKey);
@@ -115,6 +128,16 @@ if (require.main === module) {
         break;
       case 'list-proxies':
         console.log(JSON.stringify(await api.listProxies(), null, 2));
+        break;
+      case 'proxy':
+        console.log(JSON.stringify(await api.getProxy(rest[0]), null, 2));
+        break;
+      case 'update-proxy': // name field value
+        {
+          const patch = {};
+          patch[rest[1]] = Number.isNaN(Number(rest[2])) ? rest[2] : Number(rest[2]);
+          console.log(await api.updateProxy(rest[0], patch));
+        }
         break;
       case 'delete-proxy':
         console.log(await api.deleteProxy(rest[0]));
