@@ -89,6 +89,8 @@ type ProxyManager interface {
 	GetClientTraffic(name string) (ClientTrafficInfo, bool)
 	AddManagedClient(name, token string, maxTunnels int, maxTrafficBytes int64) error
 	RemoveManagedClient(name string) error
+	// NotifyClientSync 通知指定客户端的在线连接重新同步隧道（触发重连加载）
+	NotifyClientSync(clientName string) error
 }
 
 // ProxyInfo 代理信息
@@ -217,6 +219,8 @@ func (ws *WebServer) Start() error {
 	mux.HandleFunc("/api/v1/clients", ws.apiKeyMiddleware(ws.v1HandleClients))
 	mux.HandleFunc("/api/v1/clients/", ws.apiKeyMiddleware(ws.v1HandleClientPath))
 	mux.HandleFunc("/api/v1/proxies/close", ws.apiKeyMiddleware(ws.v1HandleCloseProxy))
+	mux.HandleFunc("/api/v1/proxies", ws.apiKeyMiddleware(ws.v1HandleProxies))
+	mux.HandleFunc("/api/v1/proxies/", ws.apiKeyMiddleware(ws.v1HandleProxyPath))
 	mux.HandleFunc("/api/v1/api-keys", ws.apiKeyMiddleware(ws.v1HandleAPIKeys))
 	mux.HandleFunc("/api/v1/api-keys/", ws.apiKeyMiddleware(ws.v1HandleAPIKeyPath))
 
@@ -912,4 +916,192 @@ func (ws *WebServer) v1HandleAPIKeyPath(w http.ResponseWriter, r *http.Request) 
 	}
 	delete(ws.apiKeys, key)
 	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+// ==================== 隧道 DB 驱动 API（v0.6.0） ====================
+
+// GET  /api/v1/proxies → 隧道列表（DB 定义 + 运行时状态）
+// POST /api/v1/proxies → 创建隧道 {name,type,remote_port,local_addr,local_port,client_name}
+func (ws *WebServer) v1HandleProxies(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if ws.store == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "隧道 DB 驱动未启用（需配置 db_path）"})
+		return
+	}
+	switch r.Method {
+	case http.MethodGet:
+		proxies, err := ws.store.ListProxies()
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		// 附加运行时状态
+		runtime := map[string]bool{}
+		for _, p := range ws.proxyManager.GetProxies() {
+			runtime[p.Name] = p.Active
+		}
+		type row struct {
+			store.Proxy
+			Active bool `json:"active"`
+		}
+		rows := make([]row, 0, len(proxies))
+		for _, p := range proxies {
+			rows = append(rows, row{Proxy: p, Active: runtime[p.Name]})
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "proxies": rows})
+	case http.MethodPost:
+		var req struct {
+			Name       string `json:"name"`
+			Type       string `json:"type"`
+			RemotePort int    `json:"remote_port"`
+			LocalAddr  string `json:"local_addr"`
+			LocalPort  int    `json:"local_port"`
+			ClientName string `json:"client_name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "JSON 解析失败"})
+			return
+		}
+		if req.Name == "" || req.ClientName == "" || req.RemotePort <= 0 || req.RemotePort > 65535 {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "需要 name/client_name 且 remote_port 在 1-65535"})
+			return
+		}
+		if req.Type == "" {
+			req.Type = "tcp"
+		}
+		if req.Type != "tcp" && req.Type != "udp" {
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "type 仅支持 tcp / udp"})
+			return
+		}
+		if req.LocalAddr == "" {
+			req.LocalAddr = "127.0.0.1"
+		}
+		// 校验客户端存在
+		if _, found, _ := ws.store.GetClient(req.ClientName); !found {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "客户端 [" + req.ClientName + "] 不存在"})
+			return
+		}
+		// 配额校验：隧道数上限（0=不限）
+		if cli, found, _ := ws.store.GetClient(req.ClientName); found && cli.MaxTunnels > 0 {
+			existing, _ := ws.store.ListProxiesByClient(req.ClientName)
+			if len(existing) >= cli.MaxTunnels {
+				w.WriteHeader(http.StatusConflict)
+				json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": fmt.Sprintf("客户端 [%s] 隧道数已达上限 %d", req.ClientName, cli.MaxTunnels)})
+				return
+			}
+		}
+		if _, err := ws.store.CreateProxy(store.Proxy{
+			Name:       req.Name,
+			Type:       req.Type,
+			RemotePort: req.RemotePort,
+			LocalAddr:  req.LocalAddr,
+			LocalPort:  req.LocalPort,
+			ClientName: req.ClientName,
+			Enabled:    true,
+		}); err != nil {
+			w.WriteHeader(http.StatusConflict)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		// 通知在线客户端重连加载
+		ws.proxyManager.NotifyClientSync(req.ClientName)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "msg": "隧道已创建，客户端重连后生效"})
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "method not allowed"})
+	}
+}
+
+// GET    /api/v1/proxies/{name}           → 单隧道详情
+// DELETE /api/v1/proxies/{name}           → 删除隧道（DB + 运行时下线）
+// POST   /api/v1/proxies/{name}/enable    → 启用
+// POST   /api/v1/proxies/{name}/disable   → 停用
+func (ws *WebServer) v1HandleProxyPath(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if ws.store == nil {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "隧道 DB 驱动未启用（需配置 db_path）"})
+		return
+	}
+	path := strings.TrimPrefix(r.URL.Path, "/api/v1/proxies/")
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	if len(parts) == 0 || parts[0] == "" || parts[0] == "close" {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "缺少隧道名称"})
+		return
+	}
+	name := parts[0]
+
+	if len(parts) >= 2 {
+		// enable / disable
+		var enabled bool
+		switch parts[1] {
+		case "enable":
+			enabled = true
+		case "disable":
+			enabled = false
+		default:
+			w.WriteHeader(http.StatusBadRequest)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "仅支持 enable / disable"})
+			return
+		}
+		if r.Method != http.MethodPost {
+			w.WriteHeader(http.StatusMethodNotAllowed)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "method not allowed"})
+			return
+		}
+		p, found, err := ws.store.GetProxy(name)
+		if err != nil || !found {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "隧道不存在"})
+			return
+		}
+		if _, err := ws.store.SetProxyEnabled(name, enabled); err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": err.Error()})
+			return
+		}
+		// 停用时下线运行中的隧道
+		if !enabled {
+			ws.proxyManager.CloseProxy(name)
+		}
+		ws.proxyManager.NotifyClientSync(p.ClientName)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		p, found, err := ws.store.GetProxy(name)
+		if err != nil || !found {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "隧道不存在"})
+			return
+		}
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "proxy": p})
+	case http.MethodDelete:
+		p, found, err := ws.store.GetProxy(name)
+		if err != nil || !found {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "隧道不存在"})
+			return
+		}
+		if ok, err := ws.store.DeleteProxy(name); err != nil || !ok {
+			w.WriteHeader(http.StatusNotFound)
+			json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "删除失败"})
+			return
+		}
+		ws.proxyManager.CloseProxy(name)
+		ws.proxyManager.NotifyClientSync(p.ClientName)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]interface{}{"success": false, "error": "method not allowed"})
+	}
 }

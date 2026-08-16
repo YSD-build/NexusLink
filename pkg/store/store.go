@@ -88,6 +88,18 @@ func (s *Store) initSchema() error {
 			key TEXT PRIMARY KEY,
 			value TEXT NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS proxies (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			name TEXT NOT NULL,
+			type TEXT NOT NULL DEFAULT 'tcp',
+			remote_port INTEGER NOT NULL,
+			local_addr TEXT NOT NULL DEFAULT '127.0.0.1',
+			local_port INTEGER NOT NULL,
+			client_name TEXT NOT NULL,
+			enabled INTEGER NOT NULL DEFAULT 1,
+			created_at TEXT NOT NULL,
+			UNIQUE(client_name, name)
+		)`,
 	}
 	for _, q := range schema {
 		if _, err := s.db.Exec(q); err != nil {
@@ -252,6 +264,124 @@ func (s *Store) HasAPIKey(key string) (bool, error) {
 		return false, err
 	}
 	return true, nil
+}
+
+// ==================== Proxies（隧道，服务端 DB 驱动） ====================
+
+// Proxy 隧道记录（DB 持久化）
+type Proxy struct {
+	ID         int64  `json:"id"`
+	Name       string `json:"name"`
+	Type       string `json:"type"`
+	RemotePort int    `json:"remote_port"`
+	LocalAddr  string `json:"local_addr"`
+	LocalPort  int    `json:"local_port"`
+	ClientName string `json:"client_name"`
+	Enabled    bool   `json:"enabled"`
+	CreatedAt  string `json:"created_at"`
+}
+
+// CreateProxy 新增隧道（同一客户端的隧道名唯一）
+func (s *Store) CreateProxy(p Proxy) (int64, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, err := s.db.Exec(`INSERT INTO proxies (name,type,remote_port,local_addr,local_port,client_name,enabled,created_at)
+		VALUES (?,?,?,?,?,?,?,?)`,
+		p.Name, p.Type, p.RemotePort, p.LocalAddr, p.LocalPort, p.ClientName, boolInt(p.Enabled), now())
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+// ListProxies 列出全部隧道
+func (s *Store) ListProxies() ([]Proxy, error) {
+	rows, err := s.db.Query(`SELECT id,name,type,remote_port,local_addr,local_port,client_name,enabled,created_at FROM proxies ORDER BY client_name,id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanProxies(rows)
+}
+
+// ListProxiesByClient 列出指定客户端的启用隧道（客户端同步注册用）
+func (s *Store) ListProxiesByClient(clientName string) ([]Proxy, error) {
+	rows, err := s.db.Query(`SELECT id,name,type,remote_port,local_addr,local_port,client_name,enabled,created_at FROM proxies WHERE client_name=? AND enabled=1 ORDER BY id`, clientName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanProxies(rows)
+}
+
+// GetProxy 按名称查询隧道（跨客户端）
+func (s *Store) GetProxy(name string) (Proxy, bool, error) {
+	row := s.db.QueryRow(`SELECT id,name,type,remote_port,local_addr,local_port,client_name,enabled,created_at FROM proxies WHERE name=?`, name)
+	p, err := scanProxy(row)
+	if err == sql.ErrNoRows {
+		return Proxy{}, false, nil
+	}
+	if err != nil {
+		return Proxy{}, false, err
+	}
+	return p, true, nil
+}
+
+// DeleteProxy 删除隧道
+func (s *Store) DeleteProxy(name string) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, err := s.db.Exec(`DELETE FROM proxies WHERE name=?`, name)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+// SetProxyEnabled 启用/停用隧道
+func (s *Store) SetProxyEnabled(name string, enabled bool) (bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, err := s.db.Exec(`UPDATE proxies SET enabled=? WHERE name=?`, boolInt(enabled), name)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
+}
+
+func boolInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+type proxyScanner interface{ Scan(dest ...any) error }
+
+func scanProxy(row proxyScanner) (Proxy, error) {
+	var p Proxy
+	var enabled int
+	var created string
+	if err := row.Scan(&p.ID, &p.Name, &p.Type, &p.RemotePort, &p.LocalAddr, &p.LocalPort, &p.ClientName, &enabled, &created); err != nil {
+		return Proxy{}, err
+	}
+	p.Enabled = enabled == 1
+	p.CreatedAt = created
+	return p, nil
+}
+
+func scanProxies(rows *sql.Rows) ([]Proxy, error) {
+	var out []Proxy
+	for rows.Next() {
+		p, err := scanProxy(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	return out, rows.Err()
 }
 
 // ==================== Settings ====================

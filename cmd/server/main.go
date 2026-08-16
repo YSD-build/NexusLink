@@ -547,6 +547,8 @@ func (s *Server) handleControlMessages(conn net.Conn, clientID string) {
 			s.handleNewProxy(conn, msg, clientID)
 		case protocol.TypeHeartbeat:
 			protocol.WriteMessage(conn, protocol.TypeHeartbeatResp, struct{}{})
+		case protocol.TypeSyncProxies:
+			s.handleSyncProxies(conn, clientID)
 		}
 	}
 
@@ -581,6 +583,34 @@ func (s *Server) cleanupProxy(name string, proxy *Proxy) {
 	}
 	delete(s.proxies, name)
 	s.addLog(fmt.Sprintf("代理 [%s] 已关闭", name))
+}
+
+// handleSyncProxies 处理隧道同步请求（DB 驱动模式）：查该客户端的启用隧道并下发
+func (s *Server) handleSyncProxies(conn net.Conn, clientID string) {
+	if s.store == nil {
+		// 非 DB 模式：返回空列表，客户端回退本地 yaml 配置
+		protocol.WriteMessage(conn, protocol.TypeSyncProxiesResp, protocol.SyncProxiesResp{})
+		return
+	}
+	clientName := s.clientNameFor(clientID)
+	proxies, err := s.store.ListProxiesByClient(clientName)
+	if err != nil {
+		s.addLog(fmt.Sprintf("同步隧道失败: %v", err))
+		protocol.WriteMessage(conn, protocol.TypeSyncProxiesResp, protocol.SyncProxiesResp{})
+		return
+	}
+	items := make([]protocol.SyncProxyItem, 0, len(proxies))
+	for _, p := range proxies {
+		items = append(items, protocol.SyncProxyItem{
+			Name:       p.Name,
+			Type:       protocol.ProxyType(p.Type),
+			RemotePort: p.RemotePort,
+			LocalAddr:  p.LocalAddr,
+			LocalPort:  p.LocalPort,
+		})
+	}
+	s.addLog(fmt.Sprintf("客户端 [%s] 同步 %d 条隧道", clientName, len(items)))
+	protocol.WriteMessage(conn, protocol.TypeSyncProxiesResp, protocol.SyncProxiesResp{Proxies: items})
 }
 
 // handleNewProxy 处理新建代理请求
@@ -1260,4 +1290,25 @@ func (s *Server) authForClientLocked(clientName string) *auth.Auth {
 		}
 	}
 	return s.auth
+}
+
+// ==================== 隧道 DB 驱动（v0.6.0） ====================
+
+// NotifyClientSync 通知指定客户端的在线连接重新同步隧道（关闭控制连接触发 5s 重连加载）
+func (s *Server) NotifyClientSync(clientName string) error {
+	s.mu.RLock()
+	var conn net.Conn
+	for id, c := range s.clients {
+		if s.clientNames != nil && s.clientNames[id] == clientName {
+			conn = c
+			break
+		}
+	}
+	s.mu.RUnlock()
+	if conn == nil {
+		return nil // 客户端离线，下次连接自动同步
+	}
+	conn.Close()
+	s.addLog(fmt.Sprintf("[隧道] 客户端 [%s] 在线，触发重连以加载隧道变更", clientName))
+	return nil
 }

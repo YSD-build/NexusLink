@@ -2,12 +2,15 @@ package web
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"nexuslink/pkg/store"
 )
 
 // mock ProxyManager：提供固定的状态与空代理列表
@@ -619,4 +622,147 @@ func TestV1CreateClient(t *testing.T) {
 		t.Fatal("创建应 success")
 	}
 	resp.Body.Close()
+}
+
+// ==================== 隧道 DB 驱动 mock（v0.6.0） ====================
+
+func (mockPM) NotifyClientSync(clientName string) error { return nil }
+
+// ==================== 隧道 DB 驱动 API 测试（v0.6.0） ====================
+
+// 带 DB 的 v1 测试 server（隧道 CRUD 用真实 SQLite 内存库）
+func newV1ProxyTestServer(t *testing.T) (*httptest.Server, *store.Store) {
+	t.Helper()
+	st, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	if err := st.AddClient("customer-a", "token_a", 3, 0); err != nil {
+		t.Fatalf("add client: %v", err)
+	}
+	ws := NewWebServer(&WebConfig{AdminPassword: "admin123", APIKeys: []string{"test-key"}, Store: st}, mockPM{})
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v1/proxies", ws.apiKeyMiddleware(ws.v1HandleProxies))
+	mux.HandleFunc("/api/v1/proxies/", ws.apiKeyMiddleware(ws.v1HandleProxyPath))
+	return httptest.NewServer(mux), st
+}
+
+// 创建隧道 → 列表 → 详情 → 删除 全流程
+func TestV1ProxyCRUD(t *testing.T) {
+	srv, st := newV1ProxyTestServer(t)
+	defer srv.Close()
+	defer st.Close()
+
+	key := func(req *http.Request) *http.Request {
+		req.Header.Set("X-API-Key", "test-key")
+		req.Header.Set("Content-Type", "application/json")
+		return req
+	}
+
+	// 创建
+	req, _ := http.NewRequest("POST", srv.URL+"/api/v1/proxies",
+		strings.NewReader(`{"name":"web","type":"tcp","remote_port":8099,"local_addr":"127.0.0.1","local_port":9000,"client_name":"customer-a"}`))
+	resp, err := http.DefaultClient.Do(key(req))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var d struct {
+		Success bool `json:"success"`
+	}
+	json.NewDecoder(resp.Body).Decode(&d)
+	resp.Body.Close()
+	if !d.Success || resp.StatusCode != http.StatusOK {
+		t.Fatalf("创建隧道应 200 success，得到 %d %v", resp.StatusCode, d)
+	}
+
+	// 列表
+	req2, _ := http.NewRequest("GET", srv.URL+"/api/v1/proxies", nil)
+	resp2, _ := http.DefaultClient.Do(key(req2))
+	var list struct {
+		Success bool `json:"success"`
+		Proxies []struct {
+			Name       string `json:"name"`
+			ClientName string `json:"client_name"`
+			Enabled    bool   `json:"enabled"`
+			Active     bool   `json:"active"`
+		} `json:"proxies"`
+	}
+	json.NewDecoder(resp2.Body).Decode(&list)
+	resp2.Body.Close()
+	if !list.Success || len(list.Proxies) != 1 || list.Proxies[0].Name != "web" {
+		t.Fatalf("列表应包含 1 条 web 隧道，got %+v", list)
+	}
+
+	// 详情
+	req3, _ := http.NewRequest("GET", srv.URL+"/api/v1/proxies/web", nil)
+	resp3, _ := http.DefaultClient.Do(key(req3))
+	var detail struct {
+		Success bool `json:"success"`
+	}
+	json.NewDecoder(resp3.Body).Decode(&detail)
+	resp3.Body.Close()
+	if !detail.Success {
+		t.Fatal("详情应 success")
+	}
+
+	// 删除
+	req4, _ := http.NewRequest("DELETE", srv.URL+"/api/v1/proxies/web", nil)
+	resp4, _ := http.DefaultClient.Do(key(req4))
+	var del struct {
+		Success bool `json:"success"`
+	}
+	json.NewDecoder(resp4.Body).Decode(&del)
+	resp4.Body.Close()
+	if !del.Success {
+		t.Fatal("删除应 success")
+	}
+
+	// 删除后列表为空
+	req5, _ := http.NewRequest("GET", srv.URL+"/api/v1/proxies", nil)
+	resp5, _ := http.DefaultClient.Do(key(req5))
+	var after struct {
+		Proxies []interface{} `json:"proxies"`
+	}
+	json.NewDecoder(resp5.Body).Decode(&after)
+	resp5.Body.Close()
+	if len(after.Proxies) != 0 {
+		t.Fatalf("删除后应无隧道，got %d", len(after.Proxies))
+	}
+}
+
+// 配额限制：客户端隧道数达上限后拒绝创建
+func TestV1ProxyQuota(t *testing.T) {
+	srv, st := newV1ProxyTestServer(t)
+	defer srv.Close()
+	defer st.Close()
+
+	key := func(req *http.Request) *http.Request {
+		req.Header.Set("X-API-Key", "test-key")
+		req.Header.Set("Content-Type", "application/json")
+		return req
+	}
+	create := func(name string, port int) int {
+		req, _ := http.NewRequest("POST", srv.URL+"/api/v1/proxies",
+			strings.NewReader(`{"name":"`+name+`","type":"tcp","remote_port":`+fmt.Sprint(port)+`,"local_addr":"127.0.0.1","local_port":9000,"client_name":"customer-a"}`))
+		resp, err := http.DefaultClient.Do(key(req))
+		if err != nil {
+			t.Fatal(err)
+		}
+		code := resp.StatusCode
+		resp.Body.Close()
+		return code
+	}
+
+	if create("a", 8101) != http.StatusOK {
+		t.Fatal("第 1 条应成功")
+	}
+	if create("b", 8102) != http.StatusOK {
+		t.Fatal("第 2 条应成功")
+	}
+	if create("c", 8103) != http.StatusOK {
+		t.Fatal("第 3 条应成功")
+	}
+	if code := create("d", 8104); code != http.StatusConflict {
+		t.Fatalf("第 4 条应 409（配额 3），得到 %d", code)
+	}
 }

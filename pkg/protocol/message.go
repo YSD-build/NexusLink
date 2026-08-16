@@ -46,6 +46,10 @@ const (
 	TypeHeartbeatResp MessageType = 0x08
 	// TypeDataConn 数据通道标识帧（TCP 独立数据连接首帧）
 	TypeDataConn MessageType = 0x09
+	// TypeSyncProxies 同步隧道列表请求（client → server，DB 驱动模式下客户端拉取应注册的隧道）
+	TypeSyncProxies MessageType = 0x0A
+	// TypeSyncProxiesResp 同步隧道列表响应（server → client，携带该客户端的隧道列表）
+	TypeSyncProxiesResp MessageType = 0x0B
 
 	// maxValidType 最大合法类型值（用于校验）
 	maxValidType MessageType = 0x0F
@@ -80,6 +84,20 @@ type NewProxy struct {
 	RemotePort int       `json:"remote_port"`
 	LocalAddr  string    `json:"local_addr"`
 	LocalPort  int       `json:"local_port"`
+}
+
+// SyncProxyItem 同步的隧道条目（server → client）
+type SyncProxyItem struct {
+	Name       string    `json:"name"`
+	Type       ProxyType `json:"type"`
+	RemotePort int       `json:"remote_port"`
+	LocalAddr  string    `json:"local_addr"`
+	LocalPort  int       `json:"local_port"`
+}
+
+// SyncProxiesResp 隧道同步响应
+type SyncProxiesResp struct {
+	Proxies []SyncProxyItem `json:"proxies"`
 }
 
 // NewProxyResp 新建代理响应

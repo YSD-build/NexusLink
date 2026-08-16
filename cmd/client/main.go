@@ -298,15 +298,66 @@ func (c *Client) connect() error {
 	c.conn = conn
 	log.Println("Connected to server successfully")
 
-	// 注册所有代理
-	for name, proxy := range c.cfg.Proxies {
-		c.registerProxy(name, proxy)
-	}
+	// 隧道注册：先同步服务端 DB 隧道列表（DB 驱动模式），再注册本地 yaml 隧道（兼容）
+	c.syncAndRegisterProxies()
 
 	// 启动心跳
 	go c.heartbeat()
 
 	return nil
+}
+
+// syncAndRegisterProxies 同步并注册隧道
+// 1) 向服务端请求 TypeSyncProxies（DB 驱动模式下返回该客户端的隧道列表）
+// 2) 逐个注册（若本地未注册过）
+// 3) 本地 client.yaml 声明的隧道仍注册（兼容旧配置；与 DB 隧道同名则跳过）
+func (c *Client) syncAndRegisterProxies() {
+	// 先请求服务端隧道同步
+	if err := protocol.WriteMessage(c.conn, protocol.TypeSyncProxies, struct{}{}); err != nil {
+		log.Printf("请求隧道同步失败: %v", err)
+		c.registerLocalProxies()
+		return
+	}
+	c.conn.SetReadDeadline(time.Now().Add(5 * time.Second))
+	msg, err := protocol.ReadMessage(c.conn)
+	c.conn.SetReadDeadline(time.Time{})
+	if err != nil || msg == nil || msg.Type != protocol.TypeSyncProxiesResp {
+		// 服务端不支持同步（老版本）或超时 → 回退本地 yaml 配置
+		log.Printf("服务端不支持隧道同步（%v），使用本地配置", err)
+		c.registerLocalProxies()
+		return
+	}
+	resp, err := protocol.ParseMessage[protocol.SyncProxiesResp](msg)
+	if err != nil {
+		c.registerLocalProxies()
+		return
+	}
+	if len(resp.Proxies) > 0 {
+		log.Printf("服务端下发 %d 条隧道，开始注册", len(resp.Proxies))
+	}
+	for _, item := range resp.Proxies {
+		if _, exists := c.proxies[item.Name]; exists {
+			continue
+		}
+		c.registerProxy(item.Name, config.ProxyConfig{
+			Type:       string(item.Type),
+			Port:       item.RemotePort,
+			LocalAddr:  item.LocalAddr,
+			LocalPort:  item.LocalPort,
+		})
+	}
+	// 本地 yaml 隧道（兼容模式）：注册未在 DB 列表中的
+	c.registerLocalProxies()
+}
+
+// registerLocalProxies 注册 client.yaml 中声明的隧道（兼容旧配置）
+func (c *Client) registerLocalProxies() {
+	for name, proxy := range c.cfg.Proxies {
+		if _, exists := c.proxies[name]; exists {
+			continue
+		}
+		c.registerProxy(name, proxy)
+	}
 }
 
 // registerProxy 注册代理
