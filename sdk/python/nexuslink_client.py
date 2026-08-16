@@ -57,8 +57,44 @@ class NexusLinkClient:
 
     # ---------- 隧道管理 ----------
     def close_proxy(self, name):
-        """下线指定隧道"""
+        """下线指定隧道（不删除定义）"""
         return self._req("POST", "/api/v1/proxies/close", json={"name": name})
+
+    def create_proxy(self, name, proxy_type, remote_port, local_port, local_addr, client_name):
+        """创建隧道（DB 持久化，客户端自动同步注册）
+
+        :param name:        隧道名（同一客户端内唯一）
+        :param proxy_type:  tcp / udp
+        :param remote_port: 服务端监听端口（用户访问）
+        :param local_port:  客户端本地服务端口
+        :param local_addr:  客户端本地地址（默认 127.0.0.1）
+        :param client_name: 归属客户端
+        """
+        return self._req("POST", "/api/v1/proxies", json={
+            "name": name, "type": proxy_type,
+            "remote_port": remote_port, "local_addr": local_addr,
+            "local_port": local_port, "client_name": client_name,
+        })
+
+    def list_proxies(self):
+        """列出所有隧道（DB 定义 + 运行时 active 状态）"""
+        return self._req("GET", "/api/v1/proxies").get("proxies", [])
+
+    def get_proxy(self, name):
+        """查询单个隧道详情"""
+        return self._req("GET", f"/api/v1/proxies/{name}").get("proxy")
+
+    def delete_proxy(self, name):
+        """删除隧道（DB + 运行时下线）"""
+        return self._req("DELETE", f"/api/v1/proxies/{name}")
+
+    def enable_proxy(self, name):
+        """启用隧道"""
+        return self._req("POST", f"/api/v1/proxies/{name}/enable")
+
+    def disable_proxy(self, name):
+        """停用隧道"""
+        return self._req("POST", f"/api/v1/proxies/{name}/disable")
 
     # ---------- API Key 管理 ----------
     def list_api_keys(self):

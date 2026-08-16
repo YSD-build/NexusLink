@@ -33,10 +33,17 @@ case "$CMD" in
   traffic)        req GET "/api/v1/clients/$4/traffic" ;;
   delete-client)  req DELETE "/api/v1/clients/$4" ;;
   close-proxy)    req POST /api/v1/proxies/close "{\"name\":\"$4\"}" ;;
+  list-proxies)   req GET /api/v1/proxies ;;
+  proxy)          req GET "/api/v1/proxies/$4" ;;
+  create-proxy)   # name type remote_port local_port local_addr client_name
+    req POST /api/v1/proxies "{\"name\":\"$4\",\"type\":\"$5\",\"remote_port\":$6,\"local_port\":$7,\"local_addr\":\"$8\",\"client_name\":\"$9\"}" ;;
+  delete-proxy)   req DELETE "/api/v1/proxies/$4" ;;
+  enable-proxy)   req POST "/api/v1/proxies/$4/enable" ;;
+  disable-proxy)  req POST "/api/v1/proxies/$4/disable" ;;
   list-api-keys)  req GET /api/v1/api-keys ;;
   create-api-key) req POST /api/v1/api-keys "{\"key\":\"$4\",\"note\":\"$5\"}" ;;
   delete-api-key) req DELETE "/api/v1/api-keys/$4" ;;
   *)
-    echo "未知命令: $CMD"; echo "可用: list-clients create-client client traffic delete-client close-proxy list-api-keys create-api-key delete-api-key"; exit 1 ;;
+    echo "未知命令: $CMD"; echo "可用: list-clients create-client client traffic delete-client list-proxies create-proxy proxy delete-proxy enable-proxy disable-proxy close-proxy list-api-keys create-api-key delete-api-key"; exit 1 ;;
 esac
 echo
