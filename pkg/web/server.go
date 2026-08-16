@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"nexuslink/pkg/store"
+	"nexuslink/pkg/webhook"
 )
 
 //go:embed static/*
@@ -64,6 +65,7 @@ type WebConfig struct {
 	KeyFile       string // Web 面板 HTTPS 私钥
 	APIKeys       []string // 静态 API Key（向后兼容；DB 模式下以数据库为准）
 	Store         *store.Store // 内嵌 SQLite（DB 驱动，动态管理 API Key / 客户端）
+	WebhookURL    string // Webhook 事件回调地址（隧道创建/删除/启停时推送）
 }
 
 // ClientTrafficInfo 客户端流量与配额信息（开放 API 返回结构）
@@ -1011,6 +1013,10 @@ func (ws *WebServer) v1HandleProxies(w http.ResponseWriter, r *http.Request) {
 		}
 		// 通知在线客户端重连加载
 		ws.proxyManager.NotifyClientSync(req.ClientName)
+		webhook.Send(ws.config.WebhookURL, "proxy_created", map[string]any{
+			"name": req.Name, "type": req.Type, "remote_port": req.RemotePort,
+			"local_addr": req.LocalAddr, "local_port": req.LocalPort, "client_name": req.ClientName,
+		})
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true, "msg": "隧道已创建，客户端重连后生效"})
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -1072,6 +1078,9 @@ func (ws *WebServer) v1HandleProxyPath(w http.ResponseWriter, r *http.Request) {
 			ws.proxyManager.CloseProxy(name)
 		}
 		ws.proxyManager.NotifyClientSync(p.ClientName)
+		webhook.Send(ws.config.WebhookURL, "proxy_disabled", map[string]any{
+			"name": name, "client_name": p.ClientName,
+		})
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 		return
 	}
@@ -1099,6 +1108,9 @@ func (ws *WebServer) v1HandleProxyPath(w http.ResponseWriter, r *http.Request) {
 		}
 		ws.proxyManager.CloseProxy(name)
 		ws.proxyManager.NotifyClientSync(p.ClientName)
+		webhook.Send(ws.config.WebhookURL, "proxy_deleted", map[string]any{
+			"name": name, "client_name": p.ClientName,
+		})
 		json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)

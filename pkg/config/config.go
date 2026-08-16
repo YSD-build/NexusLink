@@ -28,6 +28,7 @@ type ServerConfig struct {
 	ProxyACL      ProxyACL `yaml:"proxy_acl"`   // 代理创建访问控制
 	Whitelist     []string `yaml:"whitelist"`    // 连接守卫白名单（单 IP 或 CIDR），命中后完全 bypass 检测
 	DBPath        string   `yaml:"db_path"`      // 内嵌 SQLite 数据库路径（默认 <config目录>/nexuslink.db；配置后启用 DB 模式）
+	WebhookURL    string   `yaml:"webhook_url"`  // Webhook 事件回调地址（可选，客户端上下线/隧道变更/流量超限时 POST JSON）
 }
 
 // ManagedClient 托管客户端凭据（v0.5.0 多租户）

@@ -23,6 +23,7 @@ import (
 	"nexuslink/pkg/security"
 	"nexuslink/pkg/store"
 	"nexuslink/pkg/web"
+	"nexuslink/pkg/webhook"
 )
 
 var Version = "v0.5.1"
@@ -90,6 +91,8 @@ type Server struct {
 	clientTraffic map[string]*ClientTraffic
 	// 内嵌 SQLite 存储（v0.6.0 DB 驱动；nil 表示未启用 DB 模式）
 	store *store.Store
+	// 流量超限已通知标记（避免重复推送 webhook）
+	notifiedLimit map[string]bool
 }
 
 // ClientTraffic 客户端累计流量（按名称聚合，跨连接累计）
@@ -227,6 +230,12 @@ func (s *Server) CloseProxy(name string) error {
 	s.cleanupProxy(name, proxy)
 	s.mu.Unlock()
 	s.addLogWarn(fmt.Sprintf("Web 下线隧道 [%s]", name))
+	webhook.Send(s.cfg.WebhookURL, "proxy_closed", map[string]any{
+		"name":     name,
+		"client":   proxy.ClientName,
+		"type":     proxy.Type,
+		"port":     proxy.RemotePort,
+	})
 	return nil
 }
 
@@ -280,6 +289,7 @@ func main() {
 		connGuard: mustConnGuard(cfg.Whitelist), // 初始化连接守卫（带白名单）
 		startTime: time.Now(),
 		clientTraffic: make(map[string]*ClientTraffic),
+		notifiedLimit: make(map[string]bool),
 	}
 
 	// ===== 内嵌 SQLite 数据库（v0.6.0 DB 驱动）=====
@@ -384,6 +394,7 @@ func main() {
 			KeyFile:       cfg.WebTLSKey,
 			APIKeys:       cfg.APIKeys,
 			Store:         server.store,
+			WebhookURL:    cfg.WebhookURL,
 		}
 		server.webServer = web.NewWebServer(webCfg, server)
 		if err := server.webServer.Start(); err != nil {
@@ -513,6 +524,10 @@ func (s *Server) handleClient(conn net.Conn) {
 		s.connGuard.ClearMisbehavior(host)
 	}
 	s.addLog(fmt.Sprintf("[%s] 客户端认证成功（身份: %s）", remoteAddr, clientName))
+	webhook.Send(s.cfg.WebhookURL, "client_connected", map[string]any{
+		"client_name": clientName,
+		"addr":        remoteAddr,
+	})
 
 	// 多客户端：每个连接分配独立 ID，代理按 Owner 归属，断开时只清理自己的代理
 	clientID := fmt.Sprintf("%s-%d", remoteAddr, time.Now().UnixNano())
@@ -554,6 +569,7 @@ func (s *Server) handleControlMessages(conn net.Conn, clientID string) {
 
 	// 清理资源：仅清理本客户端拥有的代理，互不干扰（多客户端隔离）
 	s.mu.Lock()
+	clientName := s.clientNameForLocked(clientID)
 	for name, proxy := range s.proxies {
 		if proxy.Owner == clientID {
 			s.cleanupProxy(name, proxy)
@@ -562,6 +578,10 @@ func (s *Server) handleControlMessages(conn net.Conn, clientID string) {
 	delete(s.clients, clientID)
 	s.mu.Unlock()
 	s.addLog(fmt.Sprintf("客户端 [%s] 断开连接", clientID))
+	webhook.Send(s.cfg.WebhookURL, "client_disconnected", map[string]any{
+		"client_name": clientName,
+		"client_id":   clientID,
+	})
 }
 
 // cleanupProxy 关闭并移除指定代理（调用方需持有 s.mu 写锁）
@@ -1122,6 +1142,11 @@ func (s *Server) addClientTraffic(clientName string, in, out int64) {
 	atomic.AddInt64(&ct.BytesOut, out)
 	s.mu.Unlock()
 
+	// 流量超限检测（尽力而为，不阻塞转发）
+	if in+out > 0 {
+		s.checkTrafficLimit(clientName)
+	}
+
 	// DB 驱动：异步落库（避免阻塞数据转发路径）
 	if s.store != nil {
 		go func() {
@@ -1130,6 +1155,58 @@ func (s *Server) addClientTraffic(clientName string, in, out int64) {
 			}
 		}()
 	}
+}
+
+// checkTrafficLimit 检查客户端流量是否超限，超限且未通知过则推送 webhook
+func (s *Server) checkTrafficLimit(clientName string) {
+	limit := s.clientMaxTraffic(clientName)
+	if limit <= 0 {
+		return // 无配额限制
+	}
+	total := s.clientTotalTraffic(clientName)
+	if total < limit {
+		return
+	}
+	s.mu.Lock()
+	if s.notifiedLimit[clientName] {
+		s.mu.Unlock()
+		return
+	}
+	s.notifiedLimit[clientName] = true
+	s.mu.Unlock()
+	s.addLogWarn(fmt.Sprintf("[多租户] 客户端 [%s] 流量超限: %d >= %d", clientName, total, limit))
+	webhook.Send(s.cfg.WebhookURL, "traffic_limit", map[string]any{
+		"client_name":  clientName,
+		"bytes_total":  total,
+		"bytes_limit":  limit,
+	})
+}
+
+// clientMaxTraffic 返回客户端流量配额（0=不限）。优先 DB（权威），回退内存配置
+func (s *Server) clientMaxTraffic(clientName string) int64 {
+	if s.store != nil {
+		if c, found, _ := s.store.GetClient(clientName); found {
+			return c.MaxTrafficBytes
+		}
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, mc := range s.managedByToken {
+		if mc.Name == clientName {
+			return mc.MaxTrafficBytes
+		}
+	}
+	return 0
+}
+
+// clientTotalTraffic 返回客户端累计流量（内存聚合）
+func (s *Server) clientTotalTraffic(clientName string) int64 {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if ct := s.clientTraffic[clientName]; ct != nil {
+		return atomic.LoadInt64(&ct.BytesIn) + atomic.LoadInt64(&ct.BytesOut)
+	}
+	return 0
 }
 
 // ListClientsTraffic 列出所有托管客户端及其流量/配额（开放 API）
