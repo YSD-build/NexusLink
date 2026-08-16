@@ -533,9 +533,11 @@ func (s *Server) handleClient(conn net.Conn) {
 	clientID := fmt.Sprintf("%s-%d", remoteAddr, time.Now().UnixNano())
 	s.mu.Lock()
 	s.clients[clientID] = conn
-	if s.clientNames != nil {
-		s.clientNames[clientID] = clientName
+	// 记录连接身份（DB 模式无 config clients 时 clientNames 可能为 nil，懒初始化）
+	if s.clientNames == nil {
+		s.clientNames = make(map[string]string)
 	}
+	s.clientNames[clientID] = clientName
 	// 初始化流量聚合（存在则保留历史累计，不存在则新建）
 	if s.clientTraffic[clientName] == nil {
 		s.clientTraffic[clientName] = &ClientTraffic{}
