@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -39,6 +40,9 @@ var (
 	apiKey     = flag.String("api-key", "", "API key for authentication")
 	reportAddr = flag.String("report", "", "traffic report server address (default same as api)")
 	reportInterval = flag.Int("report-interval", 30, "traffic report interval in seconds")
+	// 命令行覆盖（优先级最高，高于环境变量与 yaml）
+	serverFlag = flag.String("server", "", "server address (override server_ip)")
+	portFlag   = flag.Int("port", 0, "server port (override server_port)")
 )
 
 // udpSession client 侧 UDP session：映射到本地后端连接（connected UDP socket）。
@@ -46,6 +50,43 @@ type udpSession struct {
 	id         string
 	conn       *net.UDPConn
 	lastActive time.Time
+}
+
+// hasEnvOrFlagOverride 判断是否提供了环境变量或命令行接入信息（无配置文件时可据此启动）
+func hasEnvOrFlagOverride() bool {
+	if os.Getenv("NEXUSLINK_SERVER") != "" || os.Getenv("NEXUSLINK_PORT") != "" || os.Getenv("NEXUSLINK_TOKEN") != "" {
+		return true
+	}
+	if *serverFlag != "" || *portFlag != 0 || *apiToken != "" {
+		return true
+	}
+	return false
+}
+
+// applyEnvOverrides 用 NEXUSLINK_* 环境变量覆盖配置（优先级低于命令行参数）
+func applyEnvOverrides(cfg *config.ClientConfig) {
+	if v := os.Getenv("NEXUSLINK_SERVER"); v != "" {
+		cfg.ServerIP = v
+	}
+	if v := os.Getenv("NEXUSLINK_PORT"); v != "" {
+		if p, err := strconv.Atoi(v); err == nil && p > 0 && p <= 65535 {
+			cfg.ServerPort = p
+		} else {
+			log.Printf("[WARN] NEXUSLINK_PORT 无效: %q，忽略", v)
+		}
+	}
+	if v := os.Getenv("NEXUSLINK_TOKEN"); v != "" {
+		cfg.Token = v
+	}
+	if v := os.Getenv("NEXUSLINK_TLS_ENABLE"); v == "1" || v == "true" || v == "yes" {
+		cfg.TLSEnable = true
+	}
+	if v := os.Getenv("NEXUSLINK_TLS_CA"); v != "" {
+		cfg.TLSCA = v
+	}
+	if v := os.Getenv("NEXUSLINK_TLS_INSECURE"); v == "1" || v == "true" || v == "yes" {
+		cfg.TLSInsecure = true
+	}
 }
 
 // Proxy 代理配置（含运行态）
@@ -94,10 +135,40 @@ func main() {
 		}
 		log.Println("Config fetched from API successfully")
 	} else {
-	// 方式二：从配置文件加载
-	cfg, err = config.LoadClientConfig(*configFile)
-	if err != nil {
-		log.Fatalf("Load config failed: %v", err)
+	// 方式二：配置文件 / 环境变量 / 命令行参数（多接入方式）
+	if _, statErr := os.Stat(*configFile); statErr == nil {
+		cfg, err = config.LoadClientConfig(*configFile)
+		if err != nil {
+			log.Fatalf("Load config failed: %v", err)
+		}
+	} else if hasEnvOrFlagOverride() {
+		cfg = config.NewClientConfig()
+		log.Printf("未找到配置文件 %s，使用环境变量/命令行参数启动", *configFile)
+	} else {
+		log.Fatalf("Load config failed: 配置文件 %s 不存在，且未提供 -server/-token 或 NEXUSLINK_* 环境变量", *configFile)
+	}
+
+	// 环境变量覆盖（优先级低于命令行）
+	applyEnvOverrides(cfg)
+	// 命令行覆盖（优先级最高）
+	if *serverFlag != "" {
+		cfg.ServerIP = *serverFlag
+	}
+	if *portFlag != 0 {
+		cfg.ServerPort = *portFlag
+	}
+	if *apiToken != "" && *apiAddr == "" {
+		// 非 API 拉取模式下，-token 作为连接 token 覆盖 yaml token
+		cfg.Token = *apiToken
+	}
+	if cfg.Token == "" {
+		log.Fatal("未配置 token：请在 client.yaml 设置 token，或用 -token / NEXUSLINK_TOKEN 指定")
+	}
+	if cfg.ServerIP == "" {
+		cfg.ServerIP = "127.0.0.1"
+	}
+	if cfg.ServerPort == 0 {
+		cfg.ServerPort = 7000
 	}
 
 	// 校验：测试 server_ip 连通性（可选，仅在非本地模式时严格检查）

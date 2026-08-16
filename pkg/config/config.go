@@ -104,6 +104,15 @@ func LoadServerConfig(path string) (*ServerConfig, error) {
 	return &cfg, nil
 }
 
+// NewClientConfig 返回带默认值的空客户端配置（无配置文件 / 环境变量或命令行驱动启动时用）
+func NewClientConfig() *ClientConfig {
+	return &ClientConfig{
+		ServerIP:   "127.0.0.1",
+		ServerPort: 7000,
+		Proxies:    make(map[string]ProxyConfig),
+	}
+}
+
 // LoadClientConfig 加载并校验客户端配置
 func LoadClientConfig(path string) (*ClientConfig, error) {
 	data, err := os.ReadFile(path)
