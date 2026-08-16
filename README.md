@@ -330,25 +330,68 @@ curl -H "X-API-Key: dev_api_key_789" http://server:7001/api/v1/clients/customer-
 | `POST` | `/api/v1/clients` | 创建客户端凭据 `{name, token, max_tunnels, max_traffic_bytes}` |
 | `GET` | `/api/v1/clients/{name}/traffic` | 单客户端流量 |
 | `DELETE` | `/api/v1/clients/{name}` | 删除客户端并踢下线 |
-| `POST` | `/api/v1/proxies/close` | 下线隧道 `{name}` |
+| `GET` | `/api/v1/proxies` | 隧道列表（DB 定义 + 运行时 active） |
+| `POST` | `/api/v1/proxies` | 创建隧道 `{name, type, remote_port, local_addr, local_port, client_name}` |
+| `GET` | `/api/v1/proxies/{name}` | 单隧道详情 |
+| `DELETE` | `/api/v1/proxies/{name}` | 删除隧道（DB + 运行时下线） |
+| `POST` | `/api/v1/proxies/{name}/enable` | 启用隧道 |
+| `POST` | `/api/v1/proxies/{name}/disable` | 停用隧道 |
+| `POST` | `/api/v1/proxies/close` | 下线运行中隧道 `{name}`（不删定义） |
+| `GET` | `/api/v1/api-keys` | API 密钥列表 |
+| `POST` | `/api/v1/api-keys` | 创建 API 密钥（立即生效） |
+| `DELETE` | `/api/v1/api-keys/{key}` | 删除 API 密钥 |
 
 **鉴权**：请求头 `X-API-Key: <server.yaml 的 api_keys 之一>`（独立于 Web 登录 session，供第三方程序使用）。
 
-**对接流程示例**（客户自助开隧道）：
+**对接流程示例**（平台管理隧道，客户端零配置）：
 ```bash
-# 1) 管理端创建客户凭据
+# 1) 平台创建客户凭据
 curl -X POST -H "X-API-Key: dev_api_key_789" -H "Content-Type: application/json" \
   -d '{"name":"customer-c","token":"token_c_789","max_tunnels":2,"max_traffic_bytes":524288000}' \
   http://server:7001/api/v1/clients
 
-# 2) 把 token_c_789 发给客户，客户配到 client.yaml 连接即可
+# 2) 平台为客户创建隧道（服务端 SQLite 持久化）
+curl -X POST -H "X-API-Key: dev_api_key_789" -H "Content-Type: application/json" \
+  -d '{"name":"web","type":"tcp","remote_port":8099,"local_port":9000,"local_addr":"127.0.0.1","client_name":"customer-c"}' \
+  http://server:7001/api/v1/proxies
 
-# 3) 定时轮询客户流量，超过配额可在服务端「隧道预览」下线其隧道
+# 3) 客户只需 server/token 连接，隧道自动从服务端同步注册
+#    client.yaml: server_ip/server_port/token（无需 proxies）
+#    或用命令行/环境变量: nexuslink-client -server x -port 7000 -token xxx
+
+# 4) 平台定时查流量、超限可 disable/close 隧道
 curl -H "X-API-Key: dev_api_key_789" http://server:7001/api/v1/clients/customer-c/traffic
+curl -X POST -H "X-API-Key: dev_api_key_789" http://server:7001/api/v1/proxies/web/disable
 ```
 
-**多语言 SDK**（Java / Python / C / curl 四种对接方式）见 [`sdk/`](sdk/README.md)：
+**隧道保存方式（v0.6.0 DB 驱动）**：隧道定义存服务端 SQLite（`proxies` 表），
+不再写在客户端 `client.yaml`。客户端连接后向服务端同步隧道列表并自动注册；
+平台通过 API 创建/删除/启停隧道，在线客户端触发重连即时生效。
+
+**Webhook 事件回调（v0.6.0）**：`server.yaml` 配置 `webhook_url` 后，
+客户端连接/断开、隧道创建/删除/下线/停用、流量超限时自动 POST JSON 事件到第三方平台：
+```yaml
+webhook_url: https://platform.example.com/hook
+```
+```json
+{ "event": "traffic_limit", "time": "2026-08-17T02:32:57+08:00",
+  "payload": { "client_name": "customer-a", "bytes_total": 654, "bytes_limit": 500 } }
+```
+
+**多语言 SDK**（Go / Python / Java / Node.js / PHP / C / curl 七种对接方式）见 [`sdk/`](sdk/README.md)：
 ```bash
+# Go（标准库）
+import "nexuslink/sdk/go/nexuslink"
+api := nexuslink.New("http://SERVER:7001", "dev_api_key_789")
+api.CreateClient("customer-a", "tok_a_1", 3, 0)
+api.CreateProxy("web", "tcp", 8099, 9000, "127.0.0.1", "customer-a")
+
+# Node.js（内置 fetch）
+node sdk/node/nexuslink.js http://SERVER:7001 dev_api_key_789 create-client customer-a tok_a_1 3 0
+
+# PHP（php-curl）
+php sdk/php/nexuslink.php demo http://SERVER:7001 dev_api_key_789 create-client customer-a tok_a_1 3 0
+
 # Python
 pip install requests
 python3 sdk/python/nexuslink_client.py http://SERVER:7001 dev_api_key_789 demo
